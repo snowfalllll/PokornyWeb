@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rod Pokorných z Příbora | Šest generací lékárníků</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="nav-container">
+      <a href="#" class="brand">
+        <span class="brand-title">Pokorní z Příbora</span>
+        <span class="brand-subtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
+      </a>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="#lekarna">Historie lékárny</a></li>
+          <li><a href="#vaclav-pokorny">PhMr. Václav Pokorný</a></li>
+          <li><a href="#rodokmen">Rodokmen a potomci</a></li>
+          <li><a href="#archiv">Archiv a kroniky</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="motto-badge">„Poctivost a práce“</div>
+      <h1>Šest generací lékárníků Pokorných z Příbora</h1>
+      <p>
+        Příběh rodinné lékárny „U Panny Marie pomocné“ založené roku 1756, vlasteneckých počinů na Novojičínsku a životní dráhy PhMr. Václava Pokorného – lékárníka v šesté generaci a swingového skladatele.
+      </p>
+      <div class="hero-actions">
+        <a href="#lekarna" class="btn btn-primary">Prozkoumat historii od r. 1756</a>
+        <a href="#vaclav-pokorny" class="btn btn-outline">Život a hudba Václava Pokorného</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 1: Pharmacy History -->
+  <section id="lekarna" class="section">
+    <div class="section-header">
+      <span class="section-eyebrow">1756 – 20. století</span>
+      <h2 class="section-title">Historie lékárny „U Panny Marie pomocné“</h2>
+      <p class="section-desc">
+        Od založení první lékárny Václavem Pokorným v době působení piaristů, přes založení reálného gymnázia v Příboře a sepsání rodinné kroniky Ferdinandem Pokorným, až po znárodnění v roce 1950 a polistopadovou privatizaci.
+      </p>
+    </div>
+    <div id="pharmacy-timeline" class="timeline"></div>
+  </section>
+
+  <!-- Section 2: PhMr. Václav Pokorný -->
+  <section id="vaclav-pokorny" class="section">
+    <div class="section-header">
+      <span class="section-eyebrow">6. generace • Lékárník a hudební skladatel</span>
+      <h2 class="section-title">PhMr. Václav Pokorný (zemř. 2011)</h2>
+      <p class="section-desc">
+        Lékárník v šesté generaci, spolužák Zdeňka Petra, autor swingových písní u nakladatelství R. A. Dvorského a spolupracovník orchestrů Karla Vlacha, Karla Krautgartnera i divadla Semafor.
+      </p>
+    </div>
+
+    <div class="bio-grid">
+      <div id="vaclav-timeline" class="timeline"></div>
+
+      <aside class="audio-card-panel">
+        <h3>Hudební a rozhlasový archiv</h3>
+        <p style="font-size:0.85rem; color:#cbd2d9;">
+          Poslechněte si swingové skladby, aranžmá z alba <em>Několik přání</em> (Semafor), nahrávky Dáji Šimíčkové a Shadde Yadda i rozhovory pro Československý rozhlas.
+        </p>
+        <div id="track-list" class="track-list"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Section 3: Family Tree & Descendants -->
+  <section id="rodokmen" class="section">
+    <div class="section-header">
+      <span class="section-eyebrow">Genealogie a příbuzenské větve</span>
+      <h2 class="section-title">Posloupnost lékárníků a potomci v 20. a 21. století</h2>
+      <p class="section-desc">
+        Nepřetržitá linie šesti generací příborských lékárníků, spojení s plzeňským rodem karosářů Brožíkových a přehled současných generací rodiny.
+      </p>
+    </div>
+
+    <h3 style="margin-bottom:1rem; font-size:1.4rem;">Šest generací lékárníků v Příboře</h3>
+    <div id="pharmacists-chain" class="lineage-chain"></div>
+
+    <div id="brozik-box" class="brozik-callout"></div>
+
+    <h3 style="margin-bottom:1rem; font-size:1.4rem;">Potomci ve 20. a 21. století</h3>
+    <div id="modern-generations" class="generations-grid"></div>
+  </section>
+
+  <!-- Section 4: Archive & Chronicles -->
+  <section id="archiv" class="section" style="border-bottom:none;">
+    <div class="section-header">
+      <span class="section-eyebrow">Digitální badatelna</span>
+      <h2 class="section-title">Kroniky, dokumenty a rodinné fotografie</h2>
+      <p class="section-desc">
+        Kliknutím na libovolnou položku otevřete detailní náhled s popiskem a přepisem dobového rukopisu.
+      </p>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" data-filter="all">Všechny materiály</button>
+      <button class="filter-btn" data-filter="kroniky">Kroniky</button>
+      <button class="filter-btn" data-filter="dokumenty">Diplomy a dokumenty</button>
+      <button class="filter-btn" data-filter="noty">Notové záznamy</button>
+      <button class="filter-btn" data-filter="fotografie">Fotografie</button>
+    </div>
+
+    <div id="archive-grid" class="archive-grid"></div>
+  </section>
+
+  <!-- Document Inspector Modal -->
+  <div id="archive-modal" class="modal-backdrop">
+    <div class="modal-window">
+      <div class="modal-preview">
+        <div style="font-family:var(--font-serif); font-size:1.4rem; margin-bottom:0.5rem;">Náhled archiválie</div>
+        <p style="font-size:0.85rem; color:#b0b8c1;">Zde se zobrazí naskenovaný dokument ve vysokém rozlišení (JPG/PDF).</p>
+      </div>
+      <div class="modal-details">
+        <div>
+          <div id="modal-meta" class="archive-meta"></div>
+          <h3 id="modal-title" style="font-size:1.6rem; margin:0.5rem 0;"></h3>
+          <p id="modal-desc" style="color:var(--text-secondary); font-size:0.92rem;"></p>
+          <div class="transcription-box">
+            <strong>Přepis / Poznámka k dokumentu:</strong>
+            <p id="modal-transcription" style="margin-top:0.35rem;"></p>
+          </div>
+        </div>
+        <div style="margin-top:1.5rem; text-align:right;">
+          <button id="modal-close" class="btn btn-primary">Zavřít náhled</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Persistent Audio Player Bar -->
+  <div class="audio-bar">
+    <div class="audio-bar-inner">
+      <div class="now-playing">
+        <button id="bar-play-btn" class="play-btn" title="Přehrát / Pozastavit">▶</button>
+        <div>
+          <div id="bar-track-title" style="font-weight:600; font-size:0.9rem;">Vyberte skladbu</div>
+          <div id="bar-track-sub" style="font-size:0.75rem; color:#b0b8c1;">Archiv PhMr. Václava Pokorného</div>
+        </div>
+      </div>
+      <audio id="main-audio" controls style="height:34px; max-width:360px; width:100%;"></audio>
+    </div>
+  </div>
+
+  <script src="data/content.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
