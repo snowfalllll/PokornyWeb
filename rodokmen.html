@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interaktivní rodokmen | Rod Pokorných z Příbora</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="tree-page-body">
+
+  <!-- Edge Panning Visual Indicators -->
+  <div id="edge-top" class="edge-zone edge-top" aria-hidden="true"></div>
+  <div id="edge-bottom" class="edge-zone edge-bottom" aria-hidden="true"></div>
+  <div id="edge-left" class="edge-zone edge-left" aria-hidden="true"></div>
+  <div id="edge-right" class="edge-zone edge-right" aria-hidden="true"></div>
+
+  <!-- Top-Left Floating Header & Legend -->
+  <header class="canvas-hud-top" data-ui-panel="true">
+    <a href="index.html" class="hud-back-btn" title="Zpět na hlavní stránku">
+      ← Zpět na web
+    </a>
+    <div class="hud-divider"></div>
+    <div class="hud-title-group">
+      <h1 class="hud-title">Rodokmen Pokorných z Příbora</h1>
+      <span class="hud-subtitle">Klikněte na jméno pro detail • Pohybem myši k okraji obrazovky posouváte plátno</span>
+    </div>
+    <div class="hud-divider"></div>
+    <div class="hud-legend">
+      <span class="legend-item"><span class="legend-dot dot-pharmacist"></span> Lékárníci (1.–6. gen.)</span>
+      <span class="legend-item"><span class="legend-dot dot-brozik"></span> Rod Brožíků</span>
+      <span class="legend-item"><span class="legend-dot dot-family"></span> Potomci (6.–9. gen.)</span>
+    </div>
+  </header>
+
+  <!-- Bottom-Right Corner Zoom & Tree Controls -->
+  <aside class="canvas-hud-corner" data-ui-panel="true">
+    <div class="hud-btn-group">
+      <button id="btn-expand-all" class="hud-btn hud-btn-text" type="button" title="Rozbalit všechny karty">
+        Rozbalit vše
+      </button>
+      <button id="btn-collapse-all" class="hud-btn hud-btn-text" type="button" title="Sbalit všechny karty">
+        Sbalit vše
+      </button>
+    </div>
+    <div class="hud-btn-group">
+      <button id="btn-zoom-out" class="hud-btn hud-btn-icon" type="button" title="Oddálit (−)">−</button>
+      <span id="zoom-readout" class="zoom-readout">100 %</span>
+      <button id="btn-zoom-in" class="hud-btn hud-btn-icon" type="button" title="Přiblížit (+)">+</button>
+      <button id="btn-center-tree" class="hud-btn hud-btn-text" type="button" title="Vycentrovat rodokmen">
+        ⌖ Vycentrovat
+      </button>
+    </div>
+  </aside>
+
+  <!-- Borderless Pan & Zoom Viewport -->
+  <main id="tree-viewport" class="tree-viewport">
+    <div id="tree-canvas" class="tree-canvas">
+      <div id="genealogy-root" class="genealogy-tree"></div>
+    </div>
+  </main>
+
+  <script src="data/content.js"></script>
+  <script src="js/tree.js"></script>
+</body>
+</html>

@@ -93,7 +93,8 @@ function setupAudioPlayer() {
 
 function updatePlayButton() {
   const playBtn = document.getElementById('bar-play-btn');
-  playBtn.textContent = isPlaying ? '❚❚' : '▶';
+  // playBtn.textContent = isPlaying ? '❚❚' : '▶';
+  playBtn.textContent = isPlaying ? '| |' : '▶';
 }
 
 function renderFamilyTree() {
