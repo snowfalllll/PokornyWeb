@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Historie lékárny U Panny Marie pomocné | Rod Pokorných z Příbora</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body data-page="lekarna">
+
+  <header class="site-header">
+    <div class="nav-container">
+      <a href="index.html" class="brand">
+        <span class="brand-title">Pokorní z Příbora</span>
+        <span class="brand-subtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
+      </a>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="index.html">Úvod</a></li>
+          <li><a href="historie-lekarny.html" class="active">Historie lékárny</a></li>
+          <li><a href="vaclav-pokorny.html">PhMr. Václav Pokorný</a></li>
+          <li><a href="rodokmen.html" class="nav-highlight">Interaktivní rodokmen ↗</a></li>
+          <li><a href="#lekarna-galerie">Galerie k lékárně</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <section class="subpage-hero">
+    <div class="subpage-hero-inner">
+      <span class="section-eyebrow">1756 – 20. století • Příbor č. p. 54</span>
+      <h1>Historie lékárny „U Panny Marie pomocné“</h1>
+      <p id="lekarna-hero-desc">
+        Od založení první oficíny Václavem Pokorným v době působení piaristů, přes vlasteneckou a starostenskou éru Ferdinanda Pokorného a prvorepublikové spojení s plzeňským rodem Brožíků, až po znárodnění v roce 1950 a polistopadovou privatizaci.
+      </p>
+    </div>
+  </section>
+
+  <!-- Main Section: Pharmacists Lineage + Interactive Timeline -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-eyebrow">Posloupnost šesti generací</span>
+      <h2 class="section-title">Šest generací příborských lékárníků</h2>
+      <p class="section-desc">
+        Každé jméno v posloupnosti i v textu níže je interaktivním odkazem, který vás přenese přímo na kartu dané osobnosti v rodokmenu.
+      </p>
+    </div>
+
+    <div id="pharmacists-chain" class="lineage-chain"></div>
+    <div id="brozik-box" class="brozik-callout"></div>
+
+    <div class="section-header" style="margin-top:3.5rem;">
+      <span class="section-eyebrow">Podrobná časová osa</span>
+      <h2 class="section-title">Milníky lékárny v průběhu staletí</h2>
+      <p class="section-desc">
+        Kliknutím na libovolné období nebo na tlačítko <strong>Více</strong> otevřete podrobné vyprávění a dobové fotografie v překryvném okně.
+      </p>
+    </div>
+
+    <div id="pharmacy-timeline-full" class="timeline"></div>
+  </section>
+
+  <!-- Bottom Gallery Section relevant to Historie lékárny -->
+  <section id="lekarna-galerie" class="section" style="border-bottom:none;">
+    <div class="section-header">
+      <span class="section-eyebrow">Archivní materiály k lékárně</span>
+      <h2 class="section-title">Dokumenty, kroniky a fotografie lékárny</h2>
+      <p class="section-desc">
+        Vybrané archiválie, rukopisné kroniky a historické snímky vztahující se k dějinám lékárny „U Panny Marie pomocné“ a rodině Pokorných v Příboře.
+      </p>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" data-filter="all">Všechny materiály</button>
+      <button class="filter-btn" data-filter="kroniky">Kroniky a knihy</button>
+      <button class="filter-btn" data-filter="dokumenty">Diplomy a dokumenty</button>
+      <button class="filter-btn" data-filter="fotografie">Fotografie</button>
+    </div>
+
+    <div id="archive-grid" class="collage-gallery" data-gallery-page="lekarna"></div>
+  </section>
+
+  <!-- Universal Interactive Overlay Modal -->
+  <div id="universal-modal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-modal="true">
+      <button id="modal-close-top" class="modal-close-icon" type="button" title="Zavřít (Esc)">✕</button>
+      <div id="modal-left-pane" class="modal-left-pane"></div>
+      <div id="modal-right-pane" class="modal-right-pane"></div>
+    </div>
+  </div>
+
+  <script src="data/content.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

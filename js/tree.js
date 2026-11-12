@@ -2,23 +2,57 @@ document.addEventListener('DOMContentLoaded', () => {
   initGenealogyTreePage();
 });
 
+// Flat map of all people by id for quick lookup when opening overlay modal
+const PERSON_MAP = new Map();
+
+function indexFamilyTree(node) {
+  if (!node) return;
+  PERSON_MAP.set(node.id, node);
+  if (node.spouse) {
+    PERSON_MAP.set(node.spouse.id, node.spouse);
+  }
+  if (Array.isArray(node.children)) {
+    node.children.forEach(child => indexFamilyTree(child));
+  }
+}
+
 function initGenealogyTreePage() {
   const rootEl = document.getElementById('genealogy-root');
   if (!rootEl || !SITE_DATA.familyTree || !SITE_DATA.familyTree.treeRoot) return;
 
+  indexFamilyTree(SITE_DATA.familyTree.treeRoot);
+
   rootEl.innerHTML = `<ul class="org-ul root-ul">${renderTreeNode(SITE_DATA.familyTree.treeRoot)}</ul>`;
 
-  // Wire up click-to-expand on each person card
+  // Wire up click on each person card to open the overlay modal
   rootEl.querySelectorAll('.tree-person-card').forEach(card => {
     const trigger = card.querySelector('.tree-person-trigger');
     trigger.addEventListener('click', (e) => {
       e.stopPropagation();
-      const isExpanded = card.classList.toggle('expanded');
-      trigger.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+      const personId = card.getAttribute('data-person-id');
+      const member = PERSON_MAP.get(personId);
+      if (member) {
+        openPersonOverlayModal(member);
+      }
     });
   });
 
-  setupCanvasPanAndZoom();
+  setupTreeModalEvents();
+  const panZoomApi = setupCanvasPanAndZoom();
+
+  // Check if navigated with ?person=<id> from Historie lékárny or Václav Pokorný pages
+  const params = new URLSearchParams(window.location.search);
+  const targetPersonId = params.get('person');
+  if (targetPersonId && PERSON_MAP.has(targetPersonId)) {
+    setTimeout(() => {
+      const cardEl = document.getElementById(`person-${targetPersonId}`);
+      if (cardEl) {
+        cardEl.classList.add('selected-person-card');
+        panZoomApi.focusOnElement(cardEl);
+      }
+      openPersonOverlayModal(PERSON_MAP.get(targetPersonId));
+    }, 180);
+  }
 }
 
 function renderPersonCard(member) {
@@ -26,57 +60,16 @@ function renderPersonCard(member) {
     ? `${member.birthDate} &bull; ${member.deathDate}`
     : `${member.birthDate}`;
 
-  const photoHtml = member.photo
-    ? `<img src="${member.photo}" alt="${member.name}" />`
-    : `
-      <div class="tree-photo-silhouette" aria-hidden="true">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-          <circle cx="12" cy="7" r="4"></circle>
-        </svg>
-      </div>
-      <div class="tree-photo-label">[ Portrétní foto ]</div>
-      <div class="tree-photo-caption">${member.photoCaption || 'Místo pro fotografii'}</div>
-    `;
-
   return `
     <article class="tree-person-card branch-${member.branch}" id="person-${member.id}" data-person-id="${member.id}">
-      <button type="button" class="tree-person-trigger" aria-expanded="false">
+      <button type="button" class="tree-person-trigger" title="Zobrazit detail osobnosti: ${member.name}">
         <div class="tree-person-summary">
           <div class="tree-person-role-tag">${member.role}</div>
           <div class="tree-person-name">${member.name}</div>
           <div class="tree-person-quickdates">${quickDates}</div>
         </div>
-        <span class="tree-expand-badge" title="Rozbalit / Sbalit kartu">▾</span>
+        <span class="tree-expand-badge" title="Otevřít medailonek">↗</span>
       </button>
-
-      <div class="tree-person-details">
-        <div class="tree-details-inner">
-          <div class="tree-photo-frame">
-            ${photoHtml}
-          </div>
-          <div class="tree-info-col">
-            <div>
-              <div class="tree-person-role-tag">${member.gen}. generace rodu</div>
-              <h4 class="tree-detail-heading">${member.name}</h4>
-            </div>
-            <div class="tree-dates-grid">
-              <div class="tree-date-box">
-                <span class="tree-date-label">Narození</span>
-                <span class="tree-date-value">${member.birthDate}</span>
-              </div>
-              <div class="tree-date-box">
-                <span class="tree-date-label">Úmrtí</span>
-                <span class="tree-date-value">${member.deathDate}</span>
-              </div>
-            </div>
-            <div class="tree-bio-box">
-              <span class="tree-bio-label">Životopis a popis</span>
-              <p>${member.description}</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </article>
   `;
 }
@@ -107,6 +100,200 @@ function renderTreeNode(node) {
   `;
 }
 
+// ==========================================================================
+// Person Overlay Modal: Left = Photo Carousel (Samsung Gallery style), Right = Title, Dates, Bio
+// ==========================================================================
+function openPersonOverlayModal(member) {
+  const backdrop = document.getElementById('universal-modal');
+  const leftPane = document.getElementById('modal-left-pane');
+  const rightPane = document.getElementById('modal-right-pane');
+  if (!backdrop || !leftPane || !rightPane) return;
+
+  // Highlight active card on tree
+  document.querySelectorAll('.tree-person-card').forEach(c => {
+    c.classList.toggle('selected-person-card', c.getAttribute('data-person-id') === member.id);
+  });
+
+  const photos = Array.isArray(member.photos) && member.photos.length > 0
+    ? member.photos
+    : [{ url: member.photo || null, caption: member.photoCaption || member.name }];
+
+  // Left: Photo Carousel
+  leftPane.className = 'modal-left-pane modal-pane-media';
+  leftPane.innerHTML = buildPersonCarouselHtml(photos, member.name);
+  wirePersonCarousel(leftPane, photos);
+
+  // Build links to children or spouse if present
+  const relationsHtml = buildPersonRelationsHtml(member);
+
+  // Right: Title, Role, Dates, Description, Related Links
+  rightPane.className = 'modal-right-pane modal-pane-details';
+  rightPane.innerHTML = `
+    <div class="modal-details-content">
+      <div class="archive-meta">${member.gen}. generace rodu • ${member.role}</div>
+      <h2 class="modal-main-title">${member.name}</h2>
+
+      <div class="tree-dates-grid" style="margin: 1rem 0;">
+        <div class="tree-date-box">
+          <span class="tree-date-label">Narození</span>
+          <span class="tree-date-value">${member.birthDate || '—'}</span>
+        </div>
+        <div class="tree-date-box">
+          <span class="tree-date-label">Úmrtí</span>
+          <span class="tree-date-value">${member.deathDate || '—'}</span>
+        </div>
+      </div>
+
+      <div class="tree-bio-box" style="margin-bottom: 1rem;">
+        <span class="tree-bio-label">Životopis a působení</span>
+        <p>${member.description}</p>
+      </div>
+
+      ${relationsHtml}
+    </div>
+    <div class="modal-footer-bar">
+      ${member.id === 'vaclav-6' ? `<a href="vaclav-pokorny.html" class="btn btn-outline-dark">Podstránka Václava Pokorného →</a>` : ''}
+      ${member.branch === 'pharmacist' ? `<a href="historie-lekarny.html" class="btn btn-outline-dark">Historie lékárny →</a>` : ''}
+      <button type="button" class="btn btn-primary modal-close-action">Zavřít medailonek</button>
+    </div>
+  `;
+
+  // Wire up related person buttons inside modal
+  rightPane.querySelectorAll('[data-jump-person]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-jump-person');
+      const nextPerson = PERSON_MAP.get(targetId);
+      if (nextPerson) {
+        openPersonOverlayModal(nextPerson);
+      }
+    });
+  });
+
+  rightPane.querySelector('.modal-close-action')?.addEventListener('click', closePersonModal);
+
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
+}
+
+function buildPersonRelationsHtml(member) {
+  const pills = [];
+  if (member.spouse) {
+    pills.push(`<button type="button" class="relation-pill" data-jump-person="${member.spouse.id}">⚭ ${member.spouse.name}</button>`);
+  }
+  if (Array.isArray(member.children) && member.children.length > 0) {
+    member.children.forEach(ch => {
+      pills.push(`<button type="button" class="relation-pill" data-jump-person="${ch.id}">↳ ${ch.name}</button>`);
+    });
+  }
+  if (pills.length === 0) return '';
+  return `
+    <div class="person-relations-box">
+      <div class="tree-date-label" style="margin-bottom:0.4rem;">Rodinné vazby (kliknutím přejdete):</div>
+      <div class="relation-pills-wrap">${pills.join('')}</div>
+    </div>
+  `;
+}
+
+function buildPersonCarouselHtml(photos, fallbackTitle) {
+  const first = photos[0] || { url: null, caption: fallbackTitle };
+  return `
+    <div class="samsung-gallery-viewer">
+      <div class="samsung-main-stage">
+        <button type="button" class="samsung-stage-nav prev" title="Předchozí fotografie">‹</button>
+        <div class="samsung-main-display" id="samsung-main-display">
+          ${renderPersonPhotoSlide(first, 0, photos.length)}
+        </div>
+        <button type="button" class="samsung-stage-nav next" title="Další fotografie">›</button>
+      </div>
+      <div class="samsung-caption-bar" id="samsung-caption-bar">
+        <div class="samsung-caption-title">${first.caption || fallbackTitle}</div>
+      </div>
+      <div class="samsung-filmstrip" id="samsung-filmstrip">
+        ${photos.map((p, idx) => `
+          <button type="button" class="samsung-thumb ${idx === 0 ? 'active' : ''}" data-idx="${idx}" title="${p.caption || `Foto ${idx + 1}`}">
+            ${p.url
+              ? `<img src="${p.url}" alt="${p.caption || ''}" />`
+              : `<span class="samsung-thumb-placeholder">👤 ${idx + 1}</span>`
+            }
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderPersonPhotoSlide(photo, idx, total) {
+  if (photo.url) {
+    return `<img src="${photo.url}" alt="${photo.caption || ''}" class="samsung-main-img" />`;
+  }
+  return `
+    <div class="samsung-placeholder-art">
+      <div class="samsung-placeholder-badge">Fotografie ${idx + 1} z ${total}</div>
+      <div class="samsung-placeholder-icon">👤</div>
+      <div class="samsung-placeholder-caption">${photo.caption || 'Portrétní fotografie'}</div>
+    </div>
+  `;
+}
+
+function wirePersonCarousel(container, photos) {
+  if (!photos || photos.length === 0) return;
+  let activeIndex = 0;
+
+  const mainDisplay = container.querySelector('#samsung-main-display');
+  const captionBar = container.querySelector('#samsung-caption-bar');
+  const thumbs = container.querySelectorAll('.samsung-thumb');
+  const prevBtn = container.querySelector('.samsung-stage-nav.prev');
+  const nextBtn = container.querySelector('.samsung-stage-nav.next');
+
+  function updateSlide(newIndex) {
+    activeIndex = (newIndex + photos.length) % photos.length;
+    const current = photos[activeIndex];
+    if (mainDisplay) {
+      mainDisplay.innerHTML = renderPersonPhotoSlide(current, activeIndex, photos.length);
+    }
+    if (captionBar) {
+      captionBar.innerHTML = `<div class="samsung-caption-title">${current.caption || ''}</div>`;
+    }
+    thumbs.forEach((t, idx) => t.classList.toggle('active', idx === activeIndex));
+  }
+
+  thumbs.forEach(thumb => {
+    thumb.addEventListener('click', () => {
+      const idx = parseInt(thumb.getAttribute('data-idx'), 10);
+      updateSlide(idx);
+    });
+  });
+
+  prevBtn?.addEventListener('click', () => updateSlide(activeIndex - 1));
+  nextBtn?.addEventListener('click', () => updateSlide(activeIndex + 1));
+}
+
+function setupTreeModalEvents() {
+  const backdrop = document.getElementById('universal-modal');
+  const closeTop = document.getElementById('modal-close-top');
+  if (!backdrop) return;
+
+  closeTop?.addEventListener('click', closePersonModal);
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) closePersonModal();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && backdrop.classList.contains('open')) {
+      closePersonModal();
+    }
+  });
+}
+
+function closePersonModal() {
+  const backdrop = document.getElementById('universal-modal');
+  if (!backdrop) return;
+  backdrop.classList.remove('open');
+  backdrop.setAttribute('aria-hidden', 'true');
+}
+
+// ==========================================================================
+// Canvas Pan & Zoom Setup (Sharp 2D Transform to avoid blurry text on zoom)
+// ==========================================================================
 function setupCanvasPanAndZoom() {
   const viewport = document.getElementById('tree-viewport');
   const canvas = document.getElementById('tree-canvas');
@@ -123,7 +310,6 @@ function setupCanvasPanAndZoom() {
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 2.0;
 
-  // Edge panning velocity state
   let edgeVelX = 0;
   let edgeVelY = 0;
   let isOverUiPanel = false;
@@ -132,7 +318,8 @@ function setupCanvasPanAndZoom() {
   let dragStartY = 0;
 
   function applyTransform() {
-    canvas.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`;
+    // Use 2D translate + zoom/scale without will-change 3D texture caching so text stays crisp
+    canvas.style.transform = `translate(${Math.round(panX)}px, ${Math.round(panY)}px) scale(${scale})`;
     if (zoomReadout) {
       zoomReadout.textContent = `${Math.round(scale * 100)} %`;
     }
@@ -140,8 +327,7 @@ function setupCanvasPanAndZoom() {
 
   function centerTree() {
     scale = 0.88;
-    // Reset temporarily to measure natural dimensions
-    canvas.style.transform = 'translate3d(0px, 0px, 0) scale(1)';
+    canvas.style.transform = 'translate(0px, 0px) scale(1)';
     const treeEl = document.getElementById('genealogy-root');
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -149,12 +335,25 @@ function setupCanvasPanAndZoom() {
     const treeHeight = treeEl.offsetHeight;
 
     panX = (vw - treeWidth * scale) / 2;
-    // Center vertically if it fits, otherwise position nicely with top clearance for HUD
-    if (treeHeight * scale < vh - 120) {
-      panY = (vh - treeHeight * scale) / 2 + 24;
+    if (treeHeight * scale < vh - 160) {
+      panY = (vh - treeHeight * scale) / 2 + 40;
     } else {
-      panY = 88;
+      panY = 140;
     }
+    applyTransform();
+  }
+
+  function focusOnElement(el) {
+    if (!el) return;
+    canvas.style.transform = 'translate(0px, 0px) scale(1)';
+    const rect = el.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const relX = rect.left - canvasRect.left + rect.width / 2;
+    const relY = rect.top - canvasRect.top + rect.height / 2;
+
+    scale = 1.0;
+    panX = window.innerWidth / 2 - relX * scale;
+    panY = window.innerHeight / 2 - relY * scale;
     applyTransform();
   }
 
@@ -163,13 +362,11 @@ function setupCanvasPanAndZoom() {
     scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * deltaFactor));
     const ratio = scale / prevScale;
 
-    // Keep the focal point stationary while zooming
     panX = focalX - (focalX - panX) * ratio;
     panY = focalY - (focalY - panY) * ratio;
     applyTransform();
   }
 
-  // Prevent edge panning when hovering over floating HUD panels
   document.querySelectorAll('[data-ui-panel="true"]').forEach(panel => {
     panel.addEventListener('mouseenter', () => {
       isOverUiPanel = true;
@@ -189,11 +386,16 @@ function setupCanvasPanAndZoom() {
     edgeRight?.classList.remove('active');
   }
 
-  // Edge-of-screen mouse detection
-  const EDGE_THRESHOLD = 80; // px from screen border
-  const MAX_PAN_SPEED = 11;  // px per frame
+  const EDGE_THRESHOLD = 70;
+  const MAX_PAN_SPEED = 10;
 
   window.addEventListener('mousemove', (e) => {
+    const modalOpen = document.getElementById('universal-modal')?.classList.contains('open');
+    if (modalOpen) {
+      clearEdgeVelocities();
+      return;
+    }
+
     if (isDragging) {
       panX = e.clientX - dragStartX;
       panY = e.clientY - dragStartY;
@@ -212,7 +414,6 @@ function setupCanvasPanAndZoom() {
     const x = e.clientX;
     const y = e.clientY;
 
-    // Horizontal edge check
     if (x < EDGE_THRESHOLD) {
       const intensity = 1 - x / EDGE_THRESHOLD;
       edgeVelX = MAX_PAN_SPEED * intensity;
@@ -229,9 +430,8 @@ function setupCanvasPanAndZoom() {
       edgeRight?.classList.remove('active');
     }
 
-    // Vertical edge check
-    if (y < EDGE_THRESHOLD) {
-      const intensity = 1 - y / EDGE_THRESHOLD;
+    if (y > 80 && y < 80 + EDGE_THRESHOLD) {
+      const intensity = 1 - (y - 80) / EDGE_THRESHOLD;
       edgeVelY = MAX_PAN_SPEED * intensity;
       edgeTop?.classList.add('active');
       edgeBottom?.classList.remove('active');
@@ -251,7 +451,6 @@ function setupCanvasPanAndZoom() {
     clearEdgeVelocities();
   });
 
-  // Animation loop for smooth continuous edge panning
   function edgePanLoop() {
     if (!isDragging && (edgeVelX !== 0 || edgeVelY !== 0)) {
       panX += edgeVelX;
@@ -262,7 +461,6 @@ function setupCanvasPanAndZoom() {
   }
   requestAnimationFrame(edgePanLoop);
 
-  // Also allow direct click-and-drag panning on the canvas
   viewport.addEventListener('mousedown', (e) => {
     if (e.target.closest('.tree-person-trigger') || e.target.closest('[data-ui-panel="true"]')) {
       return;
@@ -278,34 +476,19 @@ function setupCanvasPanAndZoom() {
     viewport.classList.remove('dragging');
   });
 
-  // Mouse wheel zoom
   viewport.addEventListener('wheel', (e) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
     zoomBy(factor, e.clientX, e.clientY);
   }, { passive: false });
 
-  // Corner buttons
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => zoomBy(1.18));
   document.getElementById('btn-zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.18));
   document.getElementById('btn-center-tree')?.addEventListener('click', () => centerTree());
 
-  document.getElementById('btn-expand-all')?.addEventListener('click', () => {
-    document.querySelectorAll('.tree-person-card').forEach(card => {
-      card.classList.add('expanded');
-      card.querySelector('.tree-person-trigger')?.setAttribute('aria-expanded', 'true');
-    });
-  });
-
-  document.getElementById('btn-collapse-all')?.addEventListener('click', () => {
-    document.querySelectorAll('.tree-person-card').forEach(card => {
-      card.classList.remove('expanded');
-      card.querySelector('.tree-person-trigger')?.setAttribute('aria-expanded', 'false');
-    });
-  });
-
-  // Center on load and window resize
   requestAnimationFrame(() => {
     centerTree();
   });
+
+  return { centerTree, focusOnElement };
 }

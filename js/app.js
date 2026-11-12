@@ -1,184 +1,644 @@
 document.addEventListener('DOMContentLoaded', () => {
-  renderPharmacyTimeline();
-  renderVaclavTimeline();
-  renderAudioTracks();
-  renderFamilyTree();
-  renderArchive('all');
-  setupArchiveFilters();
-  setupModal();
-  setupAudioPlayer();
+  initMainPageTimeline();
+  initFullPharmacyPage();
+  initFullVaclavPage();
+  initAudioPlayerPanel();
+  initMediaGallery();
+  initUniversalModal();
+  handleDeepLinkHash();
 });
 
-function renderPharmacyTimeline() {
-  const container = document.getElementById('pharmacy-timeline');
-  container.innerHTML = SITE_DATA.pharmacyTimeline.map(item => `
-    <div class="timeline-item">
-      <div class="timeline-year">${item.year}</div>
-      <div class="timeline-person">${item.person}</div>
-      <h3 class="timeline-title">${item.title}</h3>
-      <p>${item.description}</p>
-    </div>
-  `).join('');
+// ==========================================================================
+// Helper: Turn family member names in text into clickable links to rodokmen.html
+// ==========================================================================
+function linkifyFamilyNames(text) {
+  if (!text || !SITE_DATA.personLinks) return text || '';
+
+  // Flatten and sort all patterns by length descending so longer titles match first
+  const allMatchers = [];
+  SITE_DATA.personLinks.forEach(entry => {
+    entry.patterns.forEach(pattern => {
+      allMatchers.push({ pattern, id: entry.id });
+    });
+  });
+  allMatchers.sort((a, b) => b.pattern.length - a.pattern.length);
+
+  // Use placeholders to avoid nested replacements inside already created <a> tags
+  const placeholders = [];
+  let processed = text;
+
+  allMatchers.forEach(({ pattern, id }) => {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'g');
+    processed = processed.replace(regex, (match) => {
+      const token = `__PERSON_LINK_${placeholders.length}__`;
+      placeholders.push(
+        `<a href="rodokmen.html?person=${id}" class="person-inline-link" title="Zobrazit v rodokmenu: ${match}">${match}</a>`
+      );
+      return token;
+    });
+  });
+
+  placeholders.forEach((html, idx) => {
+    processed = processed.replace(`__PERSON_LINK_${idx}__`, html);
+  });
+
+  return processed;
 }
 
-function renderVaclavTimeline() {
-  const container = document.getElementById('vaclav-timeline');
-  container.innerHTML = SITE_DATA.vaclavTimeline.map(item => `
-    <div class="timeline-item">
-      <div class="timeline-year">${item.period}</div>
-      <h3 class="timeline-title">${item.title}</h3>
-      <p>${item.description}</p>
-    </div>
-  `).join('');
-}
+// ==========================================================================
+// 1. Main Page: Compact Historie lékárny Timeline (Title + Names + Button to Subpage)
+// ==========================================================================
+function initMainPageTimeline() {
+  const compactContainer = document.getElementById('pharmacy-timeline-compact');
+  if (!compactContainer) return;
 
-let currentTrackIndex = 0;
-let isPlaying = false;
-
-function renderAudioTracks() {
-  const container = document.getElementById('track-list');
-  container.innerHTML = SITE_DATA.audioTracks.map((track, idx) => `
-    <div class="track-item ${idx === 0 ? 'active' : ''}" data-idx="${idx}">
-      <div>
-        <div class="track-info-title">${track.title}</div>
-        <div class="track-info-sub">${track.subtitle} (${track.year})</div>
+  compactContainer.innerHTML = SITE_DATA.pharmacyTimeline.map(item => `
+    <div class="timeline-item timeline-item-compact">
+      <div class="timeline-compact-info">
+        <div class="timeline-year">${item.year}</div>
+        <h3 class="timeline-title">${item.title}</h3>
+        <div class="timeline-person">${linkifyFamilyNames(item.person)}</div>
       </div>
-      <span style="font-size:0.8rem; color:#e6dcc8;">${track.duration}</span>
+      <div class="timeline-compact-action">
+        <a href="historie-lekarny.html#${item.id}" class="btn btn-primary btn-sm">
+          Přejít na období →
+        </a>
+      </div>
     </div>
   `).join('');
 
-  container.querySelectorAll('.track-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = parseInt(el.getAttribute('data-idx'), 10);
-      selectTrack(idx, true);
-    });
-  });
-}
-
-function selectTrack(index, autoPlay = false) {
-  currentTrackIndex = index;
-  const track = SITE_DATA.audioTracks[index];
-  document.querySelectorAll('.track-item').forEach((el, i) => {
-    el.classList.toggle('active', i === index);
-  });
-  document.getElementById('bar-track-title').textContent = track.title;
-  document.getElementById('bar-track-sub').textContent = track.subtitle;
-  const audioEl = document.getElementById('main-audio');
-  audioEl.src = track.src;
-  if (autoPlay) {
-    isPlaying = true;
-    updatePlayButton();
-    audioEl.play().catch(() => {
-      // Fallback when local demo MP3 file is not yet placed in assets/audio/
-      console.log('Audio file placeholder ready for:', track.src);
-    });
+  // Linkify names in main page Václav Pokorný short description as well
+  const vaclavSentence = document.getElementById('vaclav-main-sentence');
+  if (vaclavSentence) {
+    vaclavSentence.innerHTML = linkifyFamilyNames(vaclavSentence.innerHTML);
   }
 }
 
-function setupAudioPlayer() {
+// ==========================================================================
+// 2. Historie lékárny Subpage: Lineage + Full Clickable Timeline with "Více" Overlay
+// ==========================================================================
+function initFullPharmacyPage() {
+  const chainContainer = document.getElementById('pharmacists-chain');
+  if (chainContainer && SITE_DATA.familyTree?.pharmacistsLine) {
+    chainContainer.innerHTML = SITE_DATA.familyTree.pharmacistsLine.map(node => `
+      <a href="rodokmen.html?person=${node.id}" class="lineage-node lineage-node-link" title="Zobrazit ${node.name} v rodokmenu">
+        <div class="lineage-gen">${node.gen}. generace</div>
+        <div class="lineage-name">${node.name} ↗</div>
+        <div class="lineage-role">${node.role}</div>
+      </a>
+    `).join('');
+  }
+
+  const brozikBox = document.getElementById('brozik-box');
+  if (brozikBox && SITE_DATA.familyTree?.brozikConnection) {
+    const b = SITE_DATA.familyTree.brozikConnection;
+    brozikBox.innerHTML = `
+      <h3 style="margin-bottom:0.35rem;">
+        ${b.title} – <a href="rodokmen.html?person=${b.personId}" class="person-inline-link">${b.spouse}</a>
+      </h3>
+      <p>${linkifyFamilyNames(b.details)}</p>
+    `;
+  }
+
+  const heroDesc = document.getElementById('lekarna-hero-desc');
+  if (heroDesc) {
+    heroDesc.innerHTML = linkifyFamilyNames(heroDesc.innerHTML);
+  }
+
+  const fullTimeline = document.getElementById('pharmacy-timeline-full');
+  if (!fullTimeline) return;
+
+  fullTimeline.innerHTML = SITE_DATA.pharmacyTimeline.map(item => `
+    <article id="${item.id}" class="timeline-item timeline-item-interactive" data-timeline-type="pharmacy" data-id="${item.id}" tabindex="0" role="button" aria-label="Zobrazit podrobnosti: ${item.title}">
+      <div class="timeline-item-header">
+        <div>
+          <div class="timeline-year">${item.year}</div>
+          <div class="timeline-person">${linkifyFamilyNames(item.person)}</div>
+          <h3 class="timeline-title">${item.title}</h3>
+        </div>
+        <button type="button" class="btn btn-outline-dark btn-sm timeline-more-btn" data-id="${item.id}">
+          Více ↗
+        </button>
+      </div>
+      <p class="timeline-short-desc">${linkifyFamilyNames(item.description)}</p>
+    </article>
+  `).join('');
+
+  wireInteractiveTimeline(fullTimeline, SITE_DATA.pharmacyTimeline, 'year');
+}
+
+// ==========================================================================
+// 3. PhMr. Václav Pokorný Subpage: Bio + Full Clickable Timeline with "Více" Overlay
+// ==========================================================================
+function initFullVaclavPage() {
+  const bioContainer = document.getElementById('vaclav-long-bio');
+  if (bioContainer) {
+    bioContainer.querySelectorAll('p').forEach(p => {
+      p.innerHTML = linkifyFamilyNames(p.innerHTML);
+    });
+  }
+
+  const vaclavTimeline = document.getElementById('vaclav-timeline-full');
+  if (!vaclavTimeline) return;
+
+  vaclavTimeline.innerHTML = SITE_DATA.vaclavTimeline.map(item => `
+    <article id="${item.id}" class="timeline-item timeline-item-interactive" data-timeline-type="vaclav" data-id="${item.id}" tabindex="0" role="button" aria-label="Zobrazit podrobnosti: ${item.title}">
+      <div class="timeline-item-header">
+        <div>
+          <div class="timeline-year">${item.period}</div>
+          <h3 class="timeline-title">${item.title}</h3>
+        </div>
+        <button type="button" class="btn btn-outline-dark btn-sm timeline-more-btn" data-id="${item.id}">
+          Více ↗
+        </button>
+      </div>
+      <p class="timeline-short-desc">${linkifyFamilyNames(item.description)}</p>
+    </article>
+  `).join('');
+
+  wireInteractiveTimeline(vaclavTimeline, SITE_DATA.vaclavTimeline, 'period');
+}
+
+function wireInteractiveTimeline(container, dataArray, timeKey) {
+  container.querySelectorAll('.timeline-item-interactive').forEach(card => {
+    card.addEventListener('click', (e) => {
+      // Allow clicking inline person links without triggering the modal
+      if (e.target.closest('.person-inline-link')) return;
+      const id = card.getAttribute('data-id');
+      const entry = dataArray.find(x => x.id === id);
+      if (entry) {
+        openTimelineOverlay(entry, timeKey);
+      }
+    });
+
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target.closest('.person-inline-link')) return;
+        e.preventDefault();
+        const id = card.getAttribute('data-id');
+        const entry = dataArray.find(x => x.id === id);
+        if (entry) openTimelineOverlay(entry, timeKey);
+      }
+    });
+  });
+}
+
+// ==========================================================================
+// 4. Audio Archive Showcase (3 Songs + Bottom Playhead Bar inside Panel)
+// ==========================================================================
+let currentTrackIndex = 0;
+let isPlaying = false;
+
+function initAudioPlayerPanel() {
+  const trackListEl = document.getElementById('track-list');
   const playBtn = document.getElementById('bar-play-btn');
   const audioEl = document.getElementById('main-audio');
-  selectTrack(0, false);
+  if (!trackListEl || !playBtn || !audioEl) return;
+
+  const showcaseTracks = SITE_DATA.audioTracks.slice(0, 3);
+
+  trackListEl.innerHTML = showcaseTracks.map((track, idx) => `
+    <div class="track-item ${idx === 0 ? 'active' : ''}" data-idx="${idx}">
+      <div class="track-item-left">
+        <span class="track-item-num">${idx + 1}.</span>
+        <div>
+          <div class="track-info-title">${track.title}</div>
+          <div class="track-info-sub">${track.subtitle} (${track.year})</div>
+        </div>
+      </div>
+      <span class="track-duration">${track.duration}</span>
+    </div>
+  `).join('');
+
+  trackListEl.querySelectorAll('.track-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.getAttribute('data-idx'), 10);
+      selectShowcaseTrack(idx, true);
+    });
+  });
+
+  selectShowcaseTrack(0, false);
 
   playBtn.addEventListener('click', () => {
-    isPlaying = !isPlaying;
-    updatePlayButton();
-    if (isPlaying) {
+    if (audioEl.paused) {
       audioEl.play().catch(() => {});
     } else {
       audioEl.pause();
     }
   });
+
+  audioEl.addEventListener('play', () => {
+    isPlaying = true;
+    playBtn.textContent = '❚❚';
+  });
+
+  audioEl.addEventListener('pause', () => {
+    isPlaying = false;
+    playBtn.textContent = '▶';
+  });
 }
 
-function updatePlayButton() {
+function selectShowcaseTrack(index, autoPlay = false) {
+  const showcaseTracks = SITE_DATA.audioTracks.slice(0, 3);
+  const track = showcaseTracks[index];
+  if (!track) return;
+
+  currentTrackIndex = index;
+  document.querySelectorAll('#track-list .track-item').forEach((el, i) => {
+    el.classList.toggle('active', i === index);
+  });
+
+  const titleEl = document.getElementById('bar-track-title');
+  const subEl = document.getElementById('bar-track-sub');
+  const audioEl = document.getElementById('main-audio');
   const playBtn = document.getElementById('bar-play-btn');
-  // playBtn.textContent = isPlaying ? '❚❚' : '▶';
-  playBtn.textContent = isPlaying ? '| |' : '▶';
+
+  if (titleEl) titleEl.textContent = track.title;
+  if (subEl) subEl.textContent = track.subtitle;
+  if (audioEl) {
+    audioEl.src = track.src;
+    if (autoPlay) {
+      audioEl.play().catch(() => {
+        console.log('Audio preview ready:', track.src);
+      });
+      if (playBtn) playBtn.textContent = '❚❚';
+    } else {
+      if (playBtn) playBtn.textContent = '▶';
+    }
+  }
 }
 
-function renderFamilyTree() {
-  const chainContainer = document.getElementById('pharmacists-chain');
-  chainContainer.innerHTML = SITE_DATA.familyTree.pharmacistsLine.map(node => `
-    <div class="lineage-node">
-      <div class="lineage-gen">${node.gen}. generace</div>
-      <div class="lineage-name">${node.name}</div>
-      <div class="lineage-role">${node.role}</div>
-    </div>
-  `).join('');
+// ==========================================================================
+// 5. Google Photos Collage-Style Media Gallery & Category Filters
+// ==========================================================================
+function initMediaGallery() {
+  const grid = document.getElementById('archive-grid');
+  if (!grid) return;
 
-  const brozikBox = document.getElementById('brozik-box');
-  const b = SITE_DATA.familyTree.brozikConnection;
-  brozikBox.innerHTML = `
-    <h3 style="margin-bottom:0.35rem;">${b.title} – ${b.spouse}</h3>
-    <p>${b.details}</p>
+  const pageScope = grid.getAttribute('data-gallery-page') || 'main';
+  renderCollageGallery('all', pageScope);
+
+  document.querySelectorAll('.filter-bar .filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-bar .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderCollageGallery(btn.getAttribute('data-filter'), pageScope);
+    });
+  });
+}
+
+function getMediaTypeBadge(mediaType, category) {
+  if (mediaType === 'pdf') {
+    return { icon: '📄', label: category === 'noty' ? 'Notový PDF' : 'Dokument PDF' };
+  }
+  if (mediaType === 'audio') {
+    return { icon: '🎵', label: 'Audio nahrávka' };
+  }
+  return { icon: '🖼️', label: 'Fotogalerie' };
+}
+
+function renderCollageGallery(filterCategory, pageScope) {
+  const grid = document.getElementById('archive-grid');
+  if (!grid) return;
+
+  const scopedItems = SITE_DATA.archiveItems.filter(item =>
+    !item.pages || item.pages.includes(pageScope)
+  );
+
+  const items = filterCategory === 'all'
+    ? scopedItems
+    : scopedItems.filter(i => i.category === filterCategory);
+
+  grid.innerHTML = items.map(item => {
+    const badge = getMediaTypeBadge(item.mediaType, item.category);
+    const sizeClass = `tile-${item.tileSize || 'normal'}`;
+    const photoCountBadge = item.mediaType === 'photo' && item.photos
+      ? `<span class="collage-count-pill">${item.photos.length} snímků</span>`
+      : item.mediaType === 'pdf' && item.pageCount
+      ? `<span class="collage-count-pill">${item.pageCount} stran</span>`
+      : item.mediaType === 'audio' && item.duration
+      ? `<span class="collage-count-pill">${item.duration}</span>`
+      : '';
+
+    return `
+      <article class="collage-tile ${sizeClass} media-${item.mediaType}" data-id="${item.id}" tabindex="0" role="button" aria-label="Otevřít: ${item.title}">
+        <div class="collage-tile-visual">
+          <div class="collage-tile-top-badges">
+            <span class="collage-type-badge">${badge.icon} ${badge.label}</span>
+            ${photoCountBadge}
+          </div>
+          <div class="collage-visual-center">
+            <div class="collage-visual-icon">${badge.icon}</div>
+            <div class="collage-visual-subtitle">${item.date}</div>
+          </div>
+        </div>
+        <div class="collage-tile-overlay">
+          <div class="collage-meta">${item.category} • ${item.date}</div>
+          <h3 class="collage-title">${item.title}</h3>
+          <p class="collage-desc">${item.description}</p>
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  grid.querySelectorAll('.collage-tile').forEach(tile => {
+    tile.addEventListener('click', () => {
+      const id = tile.getAttribute('data-id');
+      const item = SITE_DATA.archiveItems.find(i => i.id === id);
+      if (item) openMediaGalleryOverlay(item);
+    });
+    tile.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const id = tile.getAttribute('data-id');
+        const item = SITE_DATA.archiveItems.find(i => i.id === id);
+        if (item) openMediaGalleryOverlay(item);
+      }
+    });
+  });
+}
+
+// ==========================================================================
+// 6. Universal Overlay Modal (Supports: PDF Document, Audio, Samsung Photo Carousel, Timeline Entry)
+// ==========================================================================
+function initUniversalModal() {
+  const backdrop = document.getElementById('universal-modal');
+  const closeTop = document.getElementById('modal-close-top');
+  if (!backdrop) return;
+
+  if (closeTop) {
+    closeTop.addEventListener('click', closeUniversalModal);
+  }
+
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) {
+      closeUniversalModal();
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && backdrop.classList.contains('open')) {
+      closeUniversalModal();
+    }
+  });
+}
+
+function closeUniversalModal() {
+  const backdrop = document.getElementById('universal-modal');
+  if (!backdrop) return;
+  // Stop any audio playing inside the modal
+  backdrop.querySelectorAll('audio').forEach(a => a.pause());
+  backdrop.classList.remove('open');
+  backdrop.setAttribute('aria-hidden', 'true');
+}
+
+// A) Timeline Overlay: Long Description on the LEFT, Space for Photos Carousel on the RIGHT
+function openTimelineOverlay(entry, timeKey = 'year') {
+  const backdrop = document.getElementById('universal-modal');
+  const leftPane = document.getElementById('modal-left-pane');
+  const rightPane = document.getElementById('modal-right-pane');
+  if (!backdrop || !leftPane || !rightPane) return;
+
+  const paragraphs = (entry.longDescription || entry.description || '')
+    .split('\n\n')
+    .map(p => `<p>${linkifyFamilyNames(p.trim())}</p>`)
+    .join('');
+
+  const personLine = entry.person
+    ? `<div class="modal-person-subtitle">${linkifyFamilyNames(entry.person)}</div>`
+    : '';
+
+  // Left pane: Long description
+  leftPane.className = 'modal-left-pane modal-pane-text';
+  leftPane.innerHTML = `
+    <div class="modal-text-scroll">
+      <div class="archive-meta">${entry[timeKey] || ''}</div>
+      <h2 class="modal-main-title">${entry.title}</h2>
+      ${personLine}
+      <div class="modal-long-body">
+        ${paragraphs}
+      </div>
+    </div>
+    <div class="modal-footer-bar">
+      <button type="button" class="btn btn-primary modal-close-action">Zavřít okno</button>
+    </div>
   `;
 
-  const genGrid = document.getElementById('modern-generations');
-  genGrid.innerHTML = SITE_DATA.familyTree.modernGenerations.map(gen => `
-    <div class="gen-card">
-      <h4>${gen.generationTitle}</h4>
-      <div class="member-tags">
-        ${gen.members.map(m => `<span class="member-tag">${m}</span>`).join('')}
+  // Right pane: Space for photos with Samsung-style carousel
+  const photos = entry.photos && entry.photos.length > 0
+    ? entry.photos
+    : [{ url: null, caption: entry.title, detail: 'Fotografická příloha k období' }];
+
+  rightPane.className = 'modal-right-pane modal-pane-media';
+  rightPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, entry.title);
+
+  wireSamsungCarousel(rightPane, photos);
+  leftPane.querySelector('.modal-close-action')?.addEventListener('click', closeUniversalModal);
+
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
+}
+
+// B) Media Gallery Overlay:
+// - PDF/Document/Sheet Music: PDF preview on the LEFT, description on the RIGHT
+// - Music/Audio: Artwork/Waveform on the LEFT, playable audio + description on the RIGHT
+// - Pictures: Main photo + Samsung gallery thumbnail strip below on the LEFT, description on the RIGHT
+function openMediaGalleryOverlay(item) {
+  const backdrop = document.getElementById('universal-modal');
+  const leftPane = document.getElementById('modal-left-pane');
+  const rightPane = document.getElementById('modal-right-pane');
+  if (!backdrop || !leftPane || !rightPane) return;
+
+  leftPane.className = 'modal-left-pane modal-pane-media';
+  rightPane.className = 'modal-right-pane modal-pane-details';
+
+  if (item.mediaType === 'pdf') {
+    const totalPages = item.pageCount || 4;
+    leftPane.innerHTML = `
+      <div class="pdf-viewer-widget" data-total-pages="${totalPages}">
+        <div class="pdf-toolbar">
+          <span class="pdf-filename">📄 ${item.fileLabel || 'archivni_dokument.pdf'}</span>
+          <div class="pdf-controls">
+            <button type="button" class="pdf-nav-btn" data-dir="-1" title="Předchozí strana">◀</button>
+            <span class="pdf-page-indicator">Strana <strong id="pdf-curr-page">1</strong> / ${totalPages}</span>
+            <button type="button" class="pdf-nav-btn" data-dir="1" title="Další strana">▶</button>
+          </div>
+        </div>
+        <div class="pdf-page-canvas" id="pdf-page-canvas">
+          <div class="pdf-paper-sheet">
+            <div class="pdf-sheet-header">${item.title}</div>
+            <div class="pdf-sheet-meta">${item.author} • ${item.date}</div>
+            <div class="pdf-sheet-divider"></div>
+            <p class="pdf-sheet-excerpt" id="pdf-sheet-excerpt">${item.transcription}</p>
+            <div class="pdf-sheet-placeholder-note">
+              [ Interaktivní náhled PDF dokumentu – strana <span id="pdf-sheet-num">1</span> z ${totalPages} ]
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    let currentPage = 1;
+    leftPane.querySelectorAll('.pdf-nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const dir = parseInt(btn.getAttribute('data-dir'), 10);
+        currentPage = Math.max(1, Math.min(totalPages, currentPage + dir));
+        const currEl = leftPane.querySelector('#pdf-curr-page');
+        const numEl = leftPane.querySelector('#pdf-sheet-num');
+        if (currEl) currEl.textContent = String(currentPage);
+        if (numEl) numEl.textContent = String(currentPage);
+      });
+    });
+
+    rightPane.innerHTML = buildMediaDetailsRightHtml(item, false);
+  } else if (item.mediaType === 'audio') {
+    leftPane.innerHTML = `
+      <div class="audio-modal-visual">
+        <div class="vinyl-disc">
+          <div class="vinyl-label">♪</div>
+        </div>
+        <div class="audio-visual-caption">Zvukový archiv PhMr. Václava Pokorného</div>
+        <div class="audio-visual-sub">${item.author} (${item.date})</div>
+      </div>
+    `;
+    rightPane.innerHTML = buildMediaDetailsRightHtml(item, true);
+  } else {
+    // Photo item with Samsung Gallery style preview carousel below the main photo
+    const photos = item.photos && item.photos.length > 0
+      ? item.photos
+      : [{ url: null, caption: item.title }];
+    leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, item.title);
+    wireSamsungCarousel(leftPane, photos);
+    rightPane.innerHTML = buildMediaDetailsRightHtml(item, false);
+  }
+
+  rightPane.querySelector('.modal-close-action')?.addEventListener('click', closeUniversalModal);
+
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
+}
+
+function buildMediaDetailsRightHtml(item, includePlayableAudio) {
+  const audioPlayerBlock = includePlayableAudio
+    ? `
+      <div class="modal-audio-player-box">
+        <div class="modal-audio-label">🎧 Přehrát zvukový záznam (${item.duration || 'Archiv'})</div>
+        <audio controls autoplay src="${item.audioSrc || ''}" class="modal-audio-element"></audio>
+      </div>
+    `
+    : '';
+
+  return `
+    <div class="modal-details-content">
+      <div class="archive-meta">${item.category} • ${item.date} | ${linkifyFamilyNames(item.author)}</div>
+      <h2 class="modal-main-title">${item.title}</h2>
+      <p class="modal-desc-text">${linkifyFamilyNames(item.description)}</p>
+      ${audioPlayerBlock}
+      <div class="transcription-box">
+        <strong>Přepis / Poznámka k archiválii:</strong>
+        <p style="margin-top:0.35rem;">${linkifyFamilyNames(item.transcription)}</p>
       </div>
     </div>
-  `).join('');
+    <div class="modal-footer-bar">
+      <button type="button" class="btn btn-primary modal-close-action">Zavřít náhled</button>
+    </div>
+  `;
 }
 
-function renderArchive(filterCategory) {
-  const grid = document.getElementById('archive-grid');
-  const items = filterCategory === 'all'
-    ? SITE_DATA.archiveItems
-    : SITE_DATA.archiveItems.filter(i => i.category === filterCategory);
-
-  grid.innerHTML = items.map(item => `
-    <article class="archive-card" data-id="${item.id}">
-      <div class="archive-thumb">
-        <span style="font-family:var(--font-serif); font-size:1.1rem;">[ Archivní sken ]</span>
-        <small style="color:#5a605d; margin-top:0.3rem;">${item.title}</small>
+// Shared Samsung Gallery Style Photo Viewer (Main photo on top + filmstrip thumbnail bar below)
+function buildSamsungPhotoCarouselHtml(photos, fallbackTitle) {
+  const first = photos[0] || { url: null, caption: fallbackTitle };
+  return `
+    <div class="samsung-gallery-viewer">
+      <div class="samsung-main-stage">
+        <button type="button" class="samsung-stage-nav prev" title="Předchozí snímek">‹</button>
+        <div class="samsung-main-display" id="samsung-main-display">
+          ${renderPhotoSlideContent(first, 0, photos.length)}
+        </div>
+        <button type="button" class="samsung-stage-nav next" title="Další snímek">›</button>
       </div>
-      <div class="archive-body">
-        <div class="archive-meta">${item.category} • ${item.date}</div>
-        <h3 class="archive-title">${item.title}</h3>
-        <p class="archive-desc">${item.description}</p>
+      <div class="samsung-caption-bar" id="samsung-caption-bar">
+        <div class="samsung-caption-title">${first.caption || fallbackTitle}</div>
+        ${first.detail ? `<div class="samsung-caption-sub">${first.detail}</div>` : ''}
       </div>
-    </article>
-  `).join('');
+      <div class="samsung-filmstrip" id="samsung-filmstrip" role="tablist" aria-label="Náhledy fotografií">
+        ${photos.map((p, idx) => `
+          <button type="button" class="samsung-thumb ${idx === 0 ? 'active' : ''}" data-idx="${idx}" title="${p.caption || `Snímek ${idx + 1}`}">
+            ${p.url
+              ? `<img src="${p.url}" alt="${p.caption || ''}" />`
+              : `<span class="samsung-thumb-placeholder">🖼️ ${idx + 1}</span>`
+            }
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
 
-  grid.querySelectorAll('.archive-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const id = card.getAttribute('data-id');
-      openModal(id);
+function renderPhotoSlideContent(photo, index, total) {
+  if (photo.url) {
+    return `<img src="${photo.url}" alt="${photo.caption || ''}" class="samsung-main-img" />`;
+  }
+  return `
+    <div class="samsung-placeholder-art">
+      <div class="samsung-placeholder-badge">Fotografie ${index + 1} z ${total}</div>
+      <div class="samsung-placeholder-icon">🖼️</div>
+      <div class="samsung-placeholder-caption">${photo.caption || 'Archivní snímek'}</div>
+    </div>
+  `;
+}
+
+function wireSamsungCarousel(container, photos) {
+  if (!photos || photos.length === 0) return;
+  let activeIndex = 0;
+
+  const mainDisplay = container.querySelector('#samsung-main-display');
+  const captionBar = container.querySelector('#samsung-caption-bar');
+  const thumbs = container.querySelectorAll('.samsung-thumb');
+  const prevBtn = container.querySelector('.samsung-stage-nav.prev');
+  const nextBtn = container.querySelector('.samsung-stage-nav.next');
+
+  function updateSlide(newIndex) {
+    activeIndex = (newIndex + photos.length) % photos.length;
+    const current = photos[activeIndex];
+    if (mainDisplay) {
+      mainDisplay.innerHTML = renderPhotoSlideContent(current, activeIndex, photos.length);
+    }
+    if (captionBar) {
+      captionBar.innerHTML = `
+        <div class="samsung-caption-title">${current.caption || ''}</div>
+        ${current.detail ? `<div class="samsung-caption-sub">${current.detail}</div>` : ''}
+      `;
+    }
+    thumbs.forEach((t, idx) => {
+      t.classList.toggle('active', idx === activeIndex);
+    });
+  }
+
+  thumbs.forEach(thumb => {
+    thumb.addEventListener('click', () => {
+      const idx = parseInt(thumb.getAttribute('data-idx'), 10);
+      updateSlide(idx);
     });
   });
+
+  prevBtn?.addEventListener('click', () => updateSlide(activeIndex - 1));
+  nextBtn?.addEventListener('click', () => updateSlide(activeIndex + 1));
 }
 
-function setupArchiveFilters() {
-  document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      renderArchive(btn.getAttribute('data-filter'));
-    });
-  });
-}
+// ==========================================================================
+// 7. Deep-link Hash Support (e.g. historie-lekarny.html#lekarna-1756 highlights & scrolls)
+// ==========================================================================
+function handleDeepLinkHash() {
+  const hash = window.location.hash ? window.location.hash.slice(1) : '';
+  if (!hash) return;
 
-function setupModal() {
-  const backdrop = document.getElementById('archive-modal');
-  document.getElementById('modal-close').addEventListener('click', () => {
-    backdrop.classList.remove('open');
-  });
-  backdrop.addEventListener('click', (e) => {
-    if (e.target === backdrop) backdrop.classList.remove('open');
-  });
-}
-
-function openModal(itemId) {
-  const item = SITE_DATA.archiveItems.find(i => i.id === itemId);
-  if (!item) return;
-  document.getElementById('modal-title').textContent = item.title;
-  document.getElementById('modal-meta').textContent = `${item.date} | ${item.author}`;
-  document.getElementById('modal-desc').textContent = item.description;
-  document.getElementById('modal-transcription').textContent = item.transcription;
-  document.getElementById('archive-modal').classList.add('open');
+  const targetEl = document.getElementById(hash);
+  if (targetEl) {
+    setTimeout(() => {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      targetEl.classList.add('timeline-highlight-pulse');
+    }, 120);
+  }
 }

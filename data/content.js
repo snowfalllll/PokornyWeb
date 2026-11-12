@@ -1,104 +1,337 @@
 const SITE_DATA = {
+  // Person Lookup Dictionary for auto-linking names in descriptions to rodokmen.html?person=<id>
+  personLinks: [
+    { id: "vaclav-6", patterns: ["PhMr. Václav Pokorný", "PhMr. Václava Pokorného", "PhMr. Václavu Pokornému", "Václav Pokorný (6. generace)", "Václavem Pokorným (6. generace)"] },
+    { id: "ferdinand-4", patterns: ["PhMr. Ferdinand Pokorný", "Ferdinand Pokorný", "Ferdinanda Pokorného", "Ferdinandem Pokorným", "Ferdinandu Pokornému"] },
+    { id: "vladimir-5", patterns: ["Dr. PhMr. Vladimír Pokorný", "Dr. Vladimír Pokorný", "Dr. Vladimíra Pokorného", "Vladimír Pokorný st.", "Vladimír Pokorný", "Vladimíra Pokorného", "Vladimírem Pokorným"] },
+    { id: "bozena-brozikova-5", patterns: ["Božena Pokorná (roz. Brožíková)", "Božena Brožíková", "Boženou Brožíkovou", "Boženy Brožíkové", "Boženě Brožíkové"] },
+    { id: "kajetan-2", patterns: ["Kajetán Pokorný", "Kajetána Pokorného", "Kajetánem Pokorným", "Kajetán"] },
+    { id: "ludvik-3", patterns: ["Ludvík Pokorný", "Ludvíka Pokorného", "Ludvíkem Pokorným", "Ludvík"] },
+    { id: "vaclav-1", patterns: ["Václav Pokorný (1. generace)", "Václav Pokorný st.", "Václav Pokorný", "Václava Pokorného", "Václavem Pokorným", "Václavu Pokornému"] },
+    { id: "vladimir-6", patterns: ["Vladimír Pokorný ml.", "Vladimíra Pokorného ml."] },
+    { id: "bozena-6", patterns: ["Božena Pokorná ml.", "Boženy Pokorné ml."] },
+    { id: "petr-7", patterns: ["Petr Pokorný", "Petra Pokorného", "syn Petr"] },
+    { id: "anna-7", patterns: ["dcera Anna", "děti Annu", "Annu, Petra a Kateřinu"] }
+  ],
+
   pharmacyTimeline: [
     {
+      id: "lekarna-1756",
       year: "1756",
       title: "Založení lékárny v Příboře",
       person: "Václav Pokorný (1. generace)",
-      description: "Založení lékárny „U Panny Marie pomocné“ v Příboře. Rodové heslo „Poctivost a práce“ se stává základem více než dvousetleté tradice v regionu silně ovlivněném působením piaristů."
+      personIds: ["vaclav-1"],
+      description: "Založení lékárny „U Panny Marie pomocné“ v Příboře. Rodové heslo „Poctivost a práce“ se stává základem více než dvousetleté tradice v regionu silně ovlivněném působením piaristů.",
+      longDescription: `Roku 1756 přichází do Příbora lékárník Václav Pokorný (1. generace) a zakládá zde lékárnu „U Panny Marie pomocné“. Město Příbor bylo v této době významným vzdělanostním a duchovním centrem celého regionu díky působení piaristické koleje a gymnázia.
+
+Václav Pokorný vtiskl nově založené oficíně nejen vysokou odbornou úroveň přípravy léčivých přípravků a tinktur, ale také rodové krédo „Poctivost a práce“. Po jeho smrti vedla lékárnu s mimořádnou obětavostí vdova Rosalie, než dorostli synové a převzali správu rodinného podniku. Tím byl položen pevný základ nepřetržité dynastie šesti generací příborských lékárníků.`,
+      photos: [
+        {
+          url: null,
+          caption: "Dobová pečeť a znak lékárny U Panny Marie pomocné (1756)",
+          detail: "Archivní vyobrazení původního lékárenského znamení v Příboře."
+        },
+        {
+          url: null,
+          caption: "Zápis o založení lékárny v rodinné kronice",
+          detail: "Rukopisný záznam sepsaný ve 4. generaci Ferdinandem Pokorným."
+        },
+        {
+          url: null,
+          caption: "Historický pohled na Příbor a piaristickou kolej v 18. století",
+          detail: "Dobová rytina města Příbora z období vzniku lékárny."
+        }
+      ]
     },
     {
+      id: "lekarna-19stol",
       year: "19. století",
       title: "Generační kontinuita a rozkvět",
       person: "Kajetán, Ludvík a Ferdinand Pokorní (2.–4. generace)",
-      description: "Rodina upevňuje postavení lékárny a aktivně se zapojuje do vlasteneckého a občanského života. Podílejí se na založení reálného gymnázia v Příboře a přispívají do Vlastivědy Novojičínska. Ferdinand sepisuje rodinnou kroniku Pokorných."
+      personIds: ["kajetan-2", "ludvik-3", "ferdinand-4"],
+      description: "Rodina upevňuje postavení lékárny a aktivně se zapojuje do vlasteneckého a občanského života. Podílejí se na založení reálného gymnázia v Příboře a přispívají do Vlastivědy Novojičínska. Ferdinand Pokorný sepisuje rodinnou kroniku Pokorných.",
+      longDescription: `V průběhu 19. století přechází lékárna z otce na syna přes druhou, třetí a čtvrtou generaci. Kajetán Pokorný vedl lékárnu po dobu patnácti let a předal ji svému synovi Ludvíku Pokornému (1803–1883), váženému příborskému měšťanovi, který lékárnu přemístil a zvelebil v historickém domě č. p. 54 s podloubím na příborském náměstí.
+
+Vrcholnou osobností 19. a počátku 20. století se stal PhMr. Ferdinand Pokorný (1846–1919). Kromě vedení lékárny působil v letech 1900–1905 jako starosta města Příbora, zasloužil se o založení vyššího reálného gymnázia a věnoval se vlastivědné práci. Sepsal obsáhlou rodinnou kroniku rodu Pokorných a v roce 1917 vydal ceněnou monografii „Příborský okres“ v rámci Vlastivědy Moravské.`,
+      photos: [
+        {
+          url: null,
+          caption: "Portrét starosty a lékárníka PhMr. Ferdinanda Pokorného",
+          detail: "Ferdinand Pokorný (1846–1919), 4. generace lékárníků a autor rodinné kroniky."
+        },
+        {
+          url: null,
+          caption: "Dům č. p. 54 na náměstí v Příboře",
+          detail: "Historické sídlo lékárny s podloubím, které zvelebil Ludvík Pokorný."
+        },
+        {
+          url: null,
+          caption: "Titulní list knihy Příborský okres (1917)",
+          detail: "Vlastivědné dílo Ferdinanda Pokorného."
+        }
+      ]
     },
     {
+      id: "lekarna-1republika",
       year: "1. pol. 20. stol.",
       title: "První republika a spojení s rodem Brožíků",
-      person: "Vladimír Pokorný (5. generace)",
-      description: "Lékárnu přebírá Vladimír Pokorný. Sňatkem s Boženou Brožíkovou se rod spojuje se slavnou plzeňskou karosářskou rodinou „Brožík a syn“, staviteli prvního českého automobilu."
+      person: "Dr. PhMr. Vladimír Pokorný (5. generace)",
+      personIds: ["vladimir-5", "bozena-brozikova-5"],
+      description: "Lékárnu přebírá Vladimír Pokorný. Sňatkem s Boženou Brožíkovou se rod spojuje se slavnou plzeňskou karosářskou rodinou „Brožík a syn“, staviteli prvního českého automobilu.",
+      longDescription: `V období první Československé republiky přebírá rodinnou lékárnu pátá generace – Dr. PhMr. Vladimír Pokorný. Podobně jako jeho otec Ferdinand Pokorný se aktivně účastní veřejného a spolkového života v Příboře, pokračuje ve vlastivědné činnosti a v letech 1921–1940 stojí v čele Sboru dobrovolných hasičů v Příboře jako jeho starosta.
+
+Významným rodinným milníkem se stal sňatek Vladimíra Pokorného s Boženou Brožíkovou z Plzně. Tímto svazkem se příborský lékárnický rod spojil s proslulou plzeňskou podnikatelskou dynastií „Václav Brožík a syn“, jejíž továrna na luxusní kočáry a karoserie patřila ke špičce v Rakousku-Uhersku a zapsala se do historie stavbou prvního českého automobilu. Z manželství Vladimíra Pokorného a Boženy Pokorné (roz. Brožíkové) vzešly děti PhMr. Václav Pokorný, Božena Pokorná ml. a Vladimír Pokorný ml.`,
+      photos: [
+        {
+          url: null,
+          caption: "Průčelí a vstupní portál lékárny U Panny Marie pomocné (cca 1925)",
+          detail: "Dobový snímek lékárny z éry Dr. Vladimíra Pokorného."
+        },
+        {
+          url: null,
+          caption: "Dr. PhMr. Vladimír Pokorný s chotí Boženou roz. Brožíkovou",
+          detail: "Rodinný portrét páté generace."
+        },
+        {
+          url: null,
+          caption: "Továrna Václav Brožík a syn v Plzni",
+          detail: "Pohled do plzeňské karosárny rodiny Brožíkových."
+        }
+      ]
     },
     {
+      id: "lekarna-1945",
       year: "1945–1950",
       title: "Šestá generace a znárodnění",
       person: "PhMr. Václav Pokorný (6. generace)",
-      description: "Po studiích farmacie v Praze a návratu do Příbora přebírá štafetu Václav Pokorný. V roce 1950 však přichází komunistické znárodnění, které násilně přerušuje rodinnou správu lékárny."
+      personIds: ["vaclav-6"],
+      description: "Po studiích farmacie v Praze a návratu do Příbora přebírá štafetu PhMr. Václav Pokorný. V roce 1950 však přichází komunistické znárodnění, které násilně přerušuje rodinnou správu lékárny.",
+      longDescription: `Po skončení druhé světové války a dokončení studií farmacie v Praze se do rodného Příbora vrací PhMr. Václav Pokorný (1918–2011), představitel šesté generace lékárníků. Společně se svým otcem Vladimírem Pokorným navazuje na předválečnou tradici a věnuje se jak lékárenství, tak oživení kulturního a hudebního života ve městě.
+
+Politický převrat v únoru 1948 však zasáhl do osudu rodiny s plnou tvrdostí. V roce 1950 byla lékárna „U Panny Marie pomocné“ komunistickým režimem znárodněna a začleněna do státního podniku Medika. Tím byla po téměř dvou stech letech násilně přerušena přímá správa lékárny rodem Pokorných a PhMr. Václav Pokorný byl nucen s rodinou Příbor opustit.`,
+      photos: [
+        {
+          url: null,
+          caption: "PhMr. Václav Pokorný v příborské lékárně (konec 40. let)",
+          detail: "Šestá generace lékárníků v historické oficíně."
+        },
+        {
+          url: null,
+          caption: "Interiér oficíny s historickými stojatkami",
+          detail: "Dobové lékárenské vybavení před znárodněním v roce 1950."
+        }
+      ]
     },
     {
+      id: "lekarna-1989",
       year: "Po roce 1989",
       title: "Privatizace a zánik lékárny",
       person: "Pavel Grodza & závěr historie",
-      description: "Po sametové revoluci prochází lékárna privatizací (Pavel Grodza). Přes snahy o udržení provozu historická lékárna „U Panny Marie pomocné“ v Příboře nakonec zaniká."
+      personIds: [],
+      description: "Po sametové revoluci prochází lékárna privatizací (Pavel Grodza). Přes snahy o udržení provozu historická lékárna „U Panny Marie pomocné“ v Příboře nakonec zaniká.",
+      longDescription: `Po pádu komunistického režimu v listopadu 1989 nastala v 90. letech vlna restitucí a privatizací zdravotnických zařízení. Historickou lékárnu v Příboře v rámci privatizace převzal magistr Pavel Grodza, který usiloval o zachování lékárenského provozu na tradičním místě.
+
+V důsledku proměny trhu, nástupu velkých lékárenských řetězců a ekonomických tlaků však lékárna „U Panny Marie pomocné“ v Příboře nakonec svůj provoz ukončila a zanikla. Památka na šest generací lékárníků Pokorných, od zakladatele Václava Pokorného přes Ludvíka Pokorného, Ferdinanda Pokorného a Vladimíra Pokorného až po PhMr. Václava Pokorného, zůstává trvalou součástí historie města Příbora.`,
+      photos: [
+        {
+          url: null,
+          caption: "Historický vchod do lékárny na náměstí v Příboře",
+          detail: "Snímek budovy č. p. 54 v závěrečné éře existence lékárny."
+        },
+        {
+          url: null,
+          caption: "Pamětní dokumenty k historii příborského lékárenství",
+          detail: "Ohlédnutí za 250 lety lékárny U Panny Marie pomocné."
+        }
+      ]
     }
   ],
 
   vaclavTimeline: [
     {
+      id: "vaclav-mladi",
       period: "Mládí v Příboře",
       title: "Studia a první hudební kroky",
-      description: "Vyrůstá v Příboře, kde studuje na místním gymnáziu. Jeho spolužákem a přítelem je Zdeněk Petr, rovněž budoucí významný hudební skladatel. Zde se formuje jeho hluboký vztah ke swingu a jazzu."
+      description: "Vyrůstá v Příboře, kde studuje na místním gymnáziu. Jeho spolužákem a přítelem je Zdeněk Petr, rovněž budoucí významný hudební skladatel. Zde se formuje jeho hluboký vztah ke swingu a jazzu.",
+      longDescription: `PhMr. Václav Pokorný se narodil 26. července 1918 v Příboře do rodiny lékárníka Dr. Vladimíra Pokorného a Boženy Pokorné (roz. Brožíkové). Od dětství vyrůstal v prostředí prodchnutém úctou k lékárenskému řemeslu, které před ním v Příboře budovali Václav Pokorný (1. generace), Kajetán Pokorný, Ludvík Pokorný a dědeček Ferdinand Pokorný.
+
+Zároveň však od raného mládí projevoval mimořádné hudební nadání. Během studií na příborském reálném gymnáziu sedával v lavici se svým blízkým přítelem Zdeňkem Petrem, později rovněž slavným českým hudebním skladatelem. Společně objevovali kouzlo moderní americké hudby, jazzu a swingu, zakládali první studentské kapely a pokoušeli se o vlastní kompozice.`,
+      photos: [
+        {
+          url: null,
+          caption: "Mladý Václav Pokorný u klavíru v Příboře (30. léta)",
+          detail: "Studentská léta na příborském gymnáziu."
+        },
+        {
+          url: null,
+          caption: "Společná fotografie se spolužákem Zdeňkem Petrem",
+          detail: "Počátky celoživotního hudebního přátelství."
+        }
+      ]
     },
     {
+      id: "vaclav-praha",
       period: "1939–1945",
       title: "Praha, farmacie a zlatá éra swingu",
-      description: "Odchází do Prahy studovat farmacii. Během událostí 2. světové války naplno rozvíjí svůj hudební talent – spolupracuje s nakladatelstvím R. A. Dvorského a skládá slavné swingové písně."
+      description: "Odchází do Prahy studovat farmacii. Během událostí 2. světové války naplno rozvíjí svůj hudební talent – spolupracuje s nakladatelstvím R. A. Dvorského a skládá slavné swingové písně.",
+      longDescription: `Po maturitě odchází PhMr. Václav Pokorný do Prahy, aby v souladu s rodinnou tradicí vystudoval farmacii na Univerzitě Karlově. Uzavření českých vysokých škol v listopadu 1939 a dramatické události druhé světové války však zasáhly i do jeho studií a nasměrovaly jej ještě intenzivněji k hudbě.
+
+V Praze se Václav Pokorný dostává do samotného centra českého swingu. Navazuje úzkou spolupráci s legendárním zpěvákem, kapelníkem a nakladatelem R. A. Dvorským. V jeho nakladatelství vycházejí tiskem Pokorného swingové písně a foxtroty, které si rychle získávají oblibu u dobových orchestrů i posluchačů.`,
+      photos: [
+        {
+          url: null,
+          caption: "Notový tisk z nakladatelství R. A. Dvorského (1943)",
+          detail: "Originální obálka swingové skladby Václava Pokorného."
+        },
+        {
+          url: null,
+          caption: "Lékárnický diplom Univerzity Karlovy",
+          detail: "Udělení titulu PhMr. Václavu Pokornému."
+        }
+      ]
     },
     {
+      id: "vaclav-navrat",
       period: "1945–1948",
       title: "Návrat do Příbora a Divotvorný hrnec",
-      description: "Po konci války se vrací do rodného Příbora, žení se a zapojuje se do kulturního života, mimo jiné nastudováním slavného muzikálu Divotvorný hrnec."
+      description: "Po konci války se vrací do rodného Příbora, žení se a zapojuje se do kulturního života, mimo jiné nastudováním slavného muzikálu Divotvorný hrnec.",
+      longDescription: `Po osvobození v roce 1945 se PhMr. Václav Pokorný vrací jako diplomovaný magistr farmacie do rodného Příbora, aby po boku svého otce Vladimíra Pokorného převzal vedení lékárny „U Panny Marie pomocné“ jako šestý lékárník v nepřerušené linii.
+
+Vedle práce v oficíně se stává hybnou silou poválečného kulturního dění na Novojičínsku. Žení se a s nadšením organizuje hudební a divadelní představení. Mimořádný ohlas vzbudilo zejména jeho hudební nastudování a provedení proslulého muzikálu „Divotvorný hrnec“ (Finian's Rainbow), které do Příbora přineslo svěží duch poválečné muzikálové scény.`,
+      photos: [
+        {
+          url: null,
+          caption: "Program k příborskému uvedení muzikálu Divotvorný hrnec (1947)",
+          detail: "Hudební nastudování a řízení: PhMr. Václav Pokorný."
+        },
+        {
+          url: null,
+          caption: "Snímek z poválečného působení v Příboře",
+          detail: "Spojení lékárenské profese a hudebního života."
+        }
+      ]
     },
     {
+      id: "vaclav-50leta",
       period: "50. léta",
       title: "Znárodnění a stěhování",
-      description: "Změna politického režimu po roce 1948 těžce zasahuje rodinu Pokorných. Po znárodnění lékárny následuje stěhování do Opavy a následně do Prahy. Vychovává děti Annu, Petra a Kateřinu."
+      description: "Změna politického režimu po roce 1948 těžce zasahuje rodinu Pokorných. Po znárodnění lékárny následuje stěhování do Opavy a následně do Prahy. Vychovává děti Annu, Petra a Kateřinu.",
+      longDescription: `Komunistický převrat v roce 1948 a následné znárodnění příborské lékárny v roce 1950 zásadně změnily život celé rodiny. PhMr. Václav Pokorný přišel o rodinný podnik, který jeho předkové budovali od roku 1756, a navíc čelil kádrovým postihům spojeným s „buržoazním původem“ i se svou láskou k západnímu swingu.
+
+Rodina byla nucena opustit Příbor – nejprve následovalo stěhování do Opavy a později přesun do Prahy. V nelehkých podmínkách 50. let vychovával s manželkou tři děti: dceru Annu, syna Petra Pokorného a dceru Kateřinu. Hudba mu i v těchto letech zůstávala vnitřní oporou.`,
+      photos: [
+        {
+          url: null,
+          caption: "Rodinná fotografie z 50. let",
+          detail: "Václav Pokorný s rodinou a dětmi Annou, Petrem a Kateřinou."
+        }
+      ]
     },
     {
+      id: "vaclav-60leta",
       period: "60. léta",
       title: "Politické uvolnění a velké orchestry",
-      description: "V atmosféře uvolnění 60. let spolupracuje se špičkovými kapelníky Karlem Vlachem a Karlem Krautgartnerem. Jeho syn Petr se v této době věnuje nastupujícímu big beatu."
+      description: "V atmosféře uvolnění 60. let spolupracuje se špičkovými kapelníky Karlem Vlachem a Karlem Krautgartnerem. Jeho syn Petr se v této době věnuje nastupujícímu big beatu.",
+      longDescription: `Společenské a kulturní uvolnění šedesátých let umožnilo PhMr. Václavu Pokornému naplno se vrátit na československou hudební scénu. Jeho skladatelská a aranžérská erudice zaujala přední pražské swingové a taneční orchestry.
+
+Pravidelně spolupracuje s Orchestrem Karla Vlacha i s Orchestrem Karla Krautgartnera, pro které píše a aranžuje instrumentální i vokální skladby natáčené v Československém rozhlase. Hudební geny se mezitím projevují i v další generaci – jeho syn Petr Pokorný propadá kouzlu tehdy nastupujícího big beatu a aktivně vystupuje s beatovými kapelami.`,
+      photos: [
+        {
+          url: null,
+          caption: "Partitura pro Orchestr Karla Vlacha (60. léta)",
+          detail: "Rukopisné aranžmá PhMr. Václava Pokorného."
+        },
+        {
+          url: null,
+          caption: "Petr Pokorný s kytarou v éře big beatu",
+          detail: "Sedmá generace rodu v rytmu 60. let."
+        }
+      ]
     },
     {
+      id: "vaclav-normalizace",
       period: "1968–1989",
       title: "Normalizace a aranžérská preciznost",
-      description: "Po srpnové invazi 1968 a nástupu normalizace se věnuje aranžérské práci pro vokální sbory a dechové orchestry. Spolupracuje se souborem Eva Kvartet (Vlaďka Hořovská)."
+      description: "Po srpnové invazi 1968 a nástupu normalizace se věnuje aranžérské práci pro vokální sbory a dechové orchestry. Spolupracuje se souborem Eva Kvartet (Vlaďka Hořovská).",
+      longDescription: `Po srpnové okupaci v roce 1968 a nástupu normalizace v 70. a 80. letech soustředil PhMr. Václav Pokorný svou hudební invenci především na precizní aranžérskou a kompoziční práci. Jeho harmonické cítění a dokonalá znalost hlasového vedení z něj učinily vyhledávaného autora úprav pro vokální skupiny a orchestry.
+
+Významná byla zejména jeho dlouholetá umělecká spolupráce s ženským vokálním souborem Eva Kvartet, který vedla Vlaďka Hořovská, stejně jako nesčetné aranže pro rozhlasové a dechové orchestry.`,
+      photos: [
+        {
+          url: null,
+          caption: "Spolupráce s vokálním souborem Eva Kvartet",
+          detail: "Vokální aranžmá Václava Pokorného ze 70. a 80. let."
+        }
+      ]
     },
     {
+      id: "vaclav-po1989",
       period: "Po roce 1989",
       title: "Návrat ke kořenům, Semafor a rozhlas",
-      description: "Po úmrtí manželky pokračuje v hudební činnosti. Spolupracuje s Václavem Markem, vzniká album „Několik přání“ spojené s divadlem Semafor a poskytuje řadu vzpomínkových rozhovorů pro Československý rozhlas."
+      description: "Po úmrtí manželky pokračuje v hudební činnosti. Spolupracuje s Václavem Markem, vzniká album „Několik přání“ spojené s divadlem Semafor a poskytuje řadu vzpomínkových rozhovorů pro Československý rozhlas.",
+      longDescription: `Po roce 1989 se dílo PhMr. Václava Pokorného dočkalo zaslouženého znovuoživení a ocenění. Navzdory odchodu milované manželky zůstal mimořádně tvůrčí a vitální. Navázal přátelskou a uměleckou spolupráci s hudebníkem a publicistou Václavem Markem.
+
+Vyvrcholením této etapy se stalo autorské album „Několik přání“, natočené ve spolupráci s osobnostmi divadla Semafor. Český rozhlas s Václavem Pokorným natočil několik cenných vzpomínkových pořadů (např. Světla ramp, Kouzelný krámek či Tandem), v nichž s noblesou a humorem vyprávěl o historii příborské lékárny, studiu farmacie i zlaté éře českého swingu a R. A. Dvorského.`,
+      photos: [
+        {
+          url: null,
+          caption: "Obal autorského alba Několik přání (Semafor)",
+          detail: "Výběr skladeb PhMr. Václava Pokorného z 90. let."
+        },
+        {
+          url: null,
+          caption: "Václav Pokorný při natáčení v Českém rozhlase",
+          detail: "Vzpomínkové pořady Světla ramp a Tandem (2008)."
+        }
+      ]
     },
     {
+      id: "vaclav-odkaz",
       period: "2011 – současnost",
       title: "Odkaz v nových nahrávkách",
-      description: "PhMr. Václav Pokorný umírá v roce 2011. Jeho písně však žijí dál – do svého repertoáru je zařazuje zpěvačka Dája Šimíčková a kapela Shadde Yadda, které pořizují nové nahrávky."
+      description: "PhMr. Václav Pokorný umírá v roce 2011. Jeho písně však žijí dál – do svého repertoáru je zařazuje zpěvačka Dája Šimíčková a kapela Shadde Yadda, které pořizují nové nahrávky.",
+      longDescription: `PhMr. Václav Pokorný zemřel 11. července 2011 v Praze, krátce před svými 93. narozeninami. Uzavřela se tak životní pouť posledního lékárníka z příborské dynastie Pokorných a zároveň jednoho z posledních pamětníků a tvůrců klasické éry českého swingu.
+
+Jeho melodie a texty však neupadly v zapomnění. Mladá generace jazzových a swingových hudebníků – především zpěvačka Dája Šimíčková a swingový orchestr Shadde Yadda – objevila v rodinném archivu jeho partitury, zařadila je do svého koncertního repertoáru a pořídila nové studiové nahrávky, díky nimž hudba Václava Pokorného zní dodnes.`,
+      photos: [
+        {
+          url: null,
+          caption: "Koncertní pocta – Dája Šimíčková & Shadde Yadda",
+          detail: "Nové nastudování swingových písní PhMr. Václava Pokorného."
+        },
+        {
+          url: null,
+          caption: "Portrét PhMr. Václava Pokorného (1918–2011)",
+          detail: "Vzpomínková fotografie skladatele a lékárníka."
+        }
+      ]
     }
   ],
 
   audioTracks: [
     {
       id: "track-1",
-      title: "Ukázka z alba Několik přání (Semafor)",
-      subtitle: "PhMr. Václav Pokorný & Václav Marek",
-      duration: "3:15",
-      src: "assets/audio/nekolik-prani-ukazka.mp3",
-      year: "90. léta"
+      title: "Rozhovor v pořadu Tandem (ČRo)",
+      subtitle: "PhMr. Václav Pokorný – hudební skladatel a lékárník",
+      duration: "22:03",
+      src: "uschovna/tandem--03_12_2008--vaclav_pokorny_hudebni_skladatel--827226.mp3",
+      year: "2008"
     },
     {
       id: "track-2",
-      title: "Swingová kompozice (R. A. Dvorský edice)",
-      subtitle: "Archivní nahrávka / Reinterpretace Shadde Yadda",
-      duration: "2:50",
-      src: "assets/audio/swing-ukazka.mp3",
-      year: "1943 / 2012"
+      title: "Ukázka z alba Několik přání (Semafor)",
+      subtitle: "PhMr. Václav Pokorný & Václav Marek",
+      duration: "3:15",
+      src: "uschovna/01 Svretla Ramp_KlasikFM_Pokorny_Marek.wma",
+      year: "90. léta"
     },
     {
       id: "track-3",
-      title: "Rozhovor pro Československý rozhlas",
-      subtitle: "Vzpomínky na Příbor, farmacii a R. A. Dvorského",
-      duration: "5:42",
-      src: "assets/audio/rozhovor-rozhlas.mp3",
-      year: "Archiv ČRo"
+      title: "Světla ramp – vzpomínky na R. A. Dvorského",
+      subtitle: "Archivní nahrávka / Klasik FM",
+      duration: "2:50",
+      src: "uschovna/02 Svetla_Ramp_KlasikFM_Pokorny_Dvorsky.wma",
+      year: "1943 / 2008"
     }
   ],
 
@@ -112,7 +345,11 @@ const SITE_DATA = {
       birthDate: "* 1. pol. 18. stol.",
       deathDate: "† 2. pol. 18. stol., Příbor",
       photo: null,
-      photoCaption: "Portrét či pečeť zakladatele rodu (placeholder)",
+      photoCaption: "Portrét či pečeť zakladatele rodu",
+      photos: [
+        { url: null, caption: "Historická pečeť lékárny U Panny Marie pomocné (1756)" },
+        { url: null, caption: "Zápis o zakladateli Václavu Pokorném v rodinné kronice" }
+      ],
       description: "Zakladatel rodinné lékárny „U Panny Marie pomocné“ v Příboře roku 1756 s rodovým heslem „Poctivost a práce“. Po jeho smrti vedla lékárnu vdova Rosalie, než ji převzali synové.",
       children: [
         {
@@ -124,8 +361,12 @@ const SITE_DATA = {
           birthDate: "* 2. pol. 18. stol.",
           deathDate: "† 1. pol. 19. stol., Příbor",
           photo: null,
-          photoCaption: "Podobizna Kajetána Pokorného (placeholder)",
-          description: "Pokračovatel rodové lékárenské tradice v Příboře. V rodinné lékárně působil po dobu 15 let.",
+          photoCaption: "Podobizna Kajetána Pokorného",
+          photos: [
+            { url: null, caption: "Podobizna Kajetána Pokorného (2. generace lékárníků)" },
+            { url: null, caption: "Lékárnické záznamy z přelomu 18. a 19. století" }
+          ],
+          description: "Pokračovatel rodové lékárenské tradice v Příboře. V rodinné lékárně působil po dobu 15 let a předal ji třetí generaci.",
           children: [
             {
               id: "ludvik-3",
@@ -136,7 +377,11 @@ const SITE_DATA = {
               birthDate: "* 1803, Příbor",
               deathDate: "† 1883, Příbor",
               photo: null,
-              photoCaption: "Dobový portrét Ludvíka Pokorného (placeholder)",
+              photoCaption: "Dobový portrét Ludvíka Pokorného",
+              photos: [
+                { url: null, caption: "Dobový portrét lékárníka Ludvíka Pokorného (1803–1883)" },
+                { url: null, caption: "Dům č. p. 54 s podloubím na náměstí v Příboře" }
+              ],
               description: "Příborský lékárník a vážený měšťan, který vybudoval a zvelebil lékárnu v domě č. p. 54 s podloubím na náměstí v Příboře.",
               children: [
                 {
@@ -148,7 +393,12 @@ const SITE_DATA = {
                   birthDate: "* 14. 1. 1846, Příbor",
                   deathDate: "† 10. 1. 1919, Příbor",
                   photo: null,
-                  photoCaption: "Portrét starosty Ferdinanda Pokorného (placeholder)",
+                  photoCaption: "Portrét starosty Ferdinanda Pokorného",
+                  photos: [
+                    { url: null, caption: "Portrét PhMr. Ferdinanda Pokorného, starosty města Příbora" },
+                    { url: null, caption: "Rukopis Kroniky rodu Pokorných" },
+                    { url: null, caption: "Kniha Příborský okres (Vlastivěda Moravská, 1917)" }
+                  ],
                   description: "Syn Ludvíka Pokorného. Lékárník, v letech 1900–1905 starosta města Příbora, spoluzakladatel vyššího reálného gymnázia, autor rodinné kroniky Pokorných a historické knihy „Příborský okres“ (1917).",
                   children: [
                     {
@@ -160,7 +410,12 @@ const SITE_DATA = {
                       birthDate: "* konec 19. stol., Příbor",
                       deathDate: "† 2. pol. 20. stol.",
                       photo: null,
-                      photoCaption: "Fotografie Dr. Vladimíra Pokorného (placeholder)",
+                      photoCaption: "Fotografie Dr. Vladimíra Pokorného",
+                      photos: [
+                        { url: null, caption: "Dr. PhMr. Vladimír Pokorný (5. generace lékárníků)" },
+                        { url: null, caption: "Průčelí příborské lékárny za působení Vladimíra Pokorného (cca 1925)" },
+                        { url: null, caption: "Společná fotografie se Sbořem dobrovolných hasičů v Příboře" }
+                      ],
                       description: "Syn Ferdinanda Pokorného, 5. generace lékárníků v Příboře, vlastivědný pracovník a starosta Sboru dobrovolných hasičů v Příboře (1921–1940).",
                       spouse: {
                         id: "bozena-brozikova-5",
@@ -171,7 +426,12 @@ const SITE_DATA = {
                         birthDate: "* konec 19. stol., Plzeň",
                         deathDate: "† 20. stol.",
                         photo: null,
-                        photoCaption: "Portrét Boženy Pokorné roz. Brožíkové (placeholder)",
+                        photoCaption: "Portrét Boženy Pokorné roz. Brožíkové",
+                        photos: [
+                          { url: null, caption: "Portrét Boženy Pokorné roz. Brožíkové" },
+                          { url: null, caption: "Továrna Václav Brožík a syn v Plzni" },
+                          { url: null, caption: "Rodinný snímek s manželem Vladimírem a dětmi" }
+                        ],
                         description: "Pocházela ze slavné plzeňské karosářské rodiny „Václav Brožík a syn“, stavitelů kočárů a prvního českého automobilu. S Vladimírem Pokorným vychovala děti Václava, Boženu a Vladimíra."
                       },
                       children: [
@@ -184,7 +444,12 @@ const SITE_DATA = {
                           birthDate: "* 26. 7. 1918, Příbor",
                           deathDate: "† 11. 7. 2011, Praha",
                           photo: null,
-                          photoCaption: "Portrét PhMr. Václava Pokorného (placeholder)",
+                          photoCaption: "Portrét PhMr. Václava Pokorného",
+                          photos: [
+                            { url: null, caption: "Portrét PhMr. Václava Pokorného u klavíru" },
+                            { url: null, caption: "V příborské lékárně U Panny Marie pomocné (40. léta)" },
+                            { url: null, caption: "Notové vydání R. A. Dvorského a album Několik přání" }
+                          ],
                           description: "Lékárník v 6. generaci, hudební skladatel, klavírista a aranžér. Autor swingových hitů u nakladatelství R. A. Dvorského, spolupracovník orchestrů Karla Vlacha, Karla Krautgartnera a divadla Semafor (album Několik přání). Otec Anny, Petra a Kateřiny.",
                           children: [
                             {
@@ -196,7 +461,11 @@ const SITE_DATA = {
                               birthDate: "* 50. léta 20. stol. (doplnit)",
                               deathDate: "—",
                               photo: null,
-                              photoCaption: "Fotografie Anny (placeholder)",
+                              photoCaption: "Fotografie Anny",
+                              photos: [
+                                { url: null, caption: "Portrétní fotografie Anny (7. generace)" },
+                                { url: null, caption: "Rodinný snímek se sourozenci Petrem a Kateřinou" }
+                              ],
                               description: "Dcera PhMr. Václava Pokorného, sestra Petra a Kateřiny. (Prostor pro doplnění životopisných údajů.)",
                               children: [
                                 {
@@ -208,8 +477,11 @@ const SITE_DATA = {
                                   birthDate: "* doplnit datum",
                                   deathDate: "—",
                                   photo: null,
-                                  photoCaption: "Fotografie Martina (placeholder)",
-                                  description: "Vnuk PhMr. Václava Pokorného (8. generace). (Prostor pro doplnění medailonku.)",
+                                  photoCaption: "Fotografie Martina",
+                                  photos: [
+                                    { url: null, caption: "Fotografie Martina (8. generace)" }
+                                  ],
+                                  description: "Vnuk PhMr. Václava Pokorného (8. generace). Otec Jakuba a Anny.",
                                   children: [
                                     {
                                       id: "jakub-9",
@@ -220,8 +492,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Jakuba (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Jakuba",
+                                      photos: [{ url: null, caption: "Fotografie Jakuba (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     },
                                     {
                                       id: "anna-9",
@@ -232,8 +505,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Anny (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Anny",
+                                      photos: [{ url: null, caption: "Fotografie Anny (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     }
                                   ]
                                 },
@@ -246,8 +520,9 @@ const SITE_DATA = {
                                   birthDate: "* doplnit datum",
                                   deathDate: "—",
                                   photo: null,
-                                  photoCaption: "Fotografie Kateřiny (placeholder)",
-                                  description: "Vnučka PhMr. Václava Pokorného (8. generace). (Prostor pro doplnění medailonku.)",
+                                  photoCaption: "Fotografie Kateřiny",
+                                  photos: [{ url: null, caption: "Fotografie Kateřiny (8. generace)" }],
+                                  description: "Vnučka PhMr. Václava Pokorného (8. generace). Matka Elišky a Alžběty.",
                                   children: [
                                     {
                                       id: "eliska-9",
@@ -258,8 +533,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Elišky (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Elišky",
+                                      photos: [{ url: null, caption: "Fotografie Elišky (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     },
                                     {
                                       id: "alzbeta-1-9",
@@ -270,8 +546,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Alžběty (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Alžběty",
+                                      photos: [{ url: null, caption: "Fotografie Alžběty (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     }
                                   ]
                                 }
@@ -286,7 +563,11 @@ const SITE_DATA = {
                               birthDate: "* 50. léta 20. stol. (doplnit)",
                               deathDate: "doplnit údaj",
                               photo: null,
-                              photoCaption: "Fotografie Petra Pokorného (placeholder)",
+                              photoCaption: "Fotografie Petra Pokorného",
+                              photos: [
+                                { url: null, caption: "Petr Pokorný s kytarou (60. léta – big beat)" },
+                                { url: null, caption: "Rodinný snímek s otcem Václavem Pokorným" }
+                              ],
                               description: "Syn PhMr. Václava Pokorného. Zdědil hudební talent a v 60. letech se aktivně věnoval nastupujícímu big beatu.",
                               children: [
                                 {
@@ -298,8 +579,9 @@ const SITE_DATA = {
                                   birthDate: "* doplnit datum",
                                   deathDate: "—",
                                   photo: null,
-                                  photoCaption: "Fotografie Růženy (placeholder)",
-                                  description: "Vnučka PhMr. Václava Pokorného (8. generace). (Prostor pro doplnění medailonku.)",
+                                  photoCaption: "Fotografie Růženy",
+                                  photos: [{ url: null, caption: "Fotografie Růženy (8. generace)" }],
+                                  description: "Vnučka PhMr. Václava Pokorného (8. generace). Matka Barbory a Celestýny.",
                                   children: [
                                     {
                                       id: "barbora-9",
@@ -310,8 +592,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Barbory (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Barbory",
+                                      photos: [{ url: null, caption: "Fotografie Barbory (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     },
                                     {
                                       id: "celestyna-9",
@@ -322,8 +605,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Celestýny (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Celestýny",
+                                      photos: [{ url: null, caption: "Fotografie Celestýny (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     }
                                   ]
                                 },
@@ -336,8 +620,9 @@ const SITE_DATA = {
                                   birthDate: "* doplnit datum",
                                   deathDate: "—",
                                   photo: null,
-                                  photoCaption: "Fotografie Kláry (placeholder)",
-                                  description: "Vnučka PhMr. Václava Pokorného (8. generace). (Prostor pro doplnění medailonku.)"
+                                  photoCaption: "Fotografie Kláry",
+                                  photos: [{ url: null, caption: "Fotografie Kláry (8. generace)" }],
+                                  description: "Vnučka PhMr. Václava Pokorného (8. generace)."
                                 }
                               ]
                             },
@@ -350,8 +635,9 @@ const SITE_DATA = {
                               birthDate: "* 50. léta 20. stol. (doplnit)",
                               deathDate: "—",
                               photo: null,
-                              photoCaption: "Fotografie Kateřiny (placeholder)",
-                              description: "Dcera PhMr. Václava Pokorného, sestra Anny a Petra. (Prostor pro doplnění životopisných údajů.)",
+                              photoCaption: "Fotografie Kateřiny",
+                              photos: [{ url: null, caption: "Fotografie Kateřiny (7. generace)" }],
+                              description: "Dcera PhMr. Václava Pokorného, sestra Anny a Petra.",
                               children: [
                                 {
                                   id: "jiri-8",
@@ -362,8 +648,9 @@ const SITE_DATA = {
                                   birthDate: "* doplnit datum",
                                   deathDate: "—",
                                   photo: null,
-                                  photoCaption: "Fotografie Jiřího (placeholder)",
-                                  description: "Vnuk PhMr. Václava Pokorného (8. generace). (Prostor pro doplnění medailonku.)",
+                                  photoCaption: "Fotografie Jiřího",
+                                  photos: [{ url: null, caption: "Fotografie Jiřího (8. generace)" }],
+                                  description: "Vnuk PhMr. Václava Pokorného (8. generace). Otec Matěje a Alžběty.",
                                   children: [
                                     {
                                       id: "matej-9",
@@ -374,8 +661,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Matěje (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Matěje",
+                                      photos: [{ url: null, caption: "Fotografie Matěje (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     },
                                     {
                                       id: "alzbeta-2-9",
@@ -386,8 +674,9 @@ const SITE_DATA = {
                                       birthDate: "* doplnit datum",
                                       deathDate: "—",
                                       photo: null,
-                                      photoCaption: "Fotografie Alžběty (placeholder)",
-                                      description: "Nejmladší (9.) generace rodu Pokorných. (Prostor pro doplnění medailonku.)"
+                                      photoCaption: "Fotografie Alžběty",
+                                      photos: [{ url: null, caption: "Fotografie Alžběty (9. generace)" }],
+                                      description: "Nejmladší (9.) generace rodu Pokorných."
                                     }
                                   ]
                                 }
@@ -404,7 +693,8 @@ const SITE_DATA = {
                           birthDate: "* 1. pol. 20. stol. (doplnit)",
                           deathDate: "doplnit údaj",
                           photo: null,
-                          photoCaption: "Fotografie Boženy (placeholder)",
+                          photoCaption: "Fotografie Boženy",
+                          photos: [{ url: null, caption: "Fotografie Boženy Pokorné ml." }],
                           description: "Dcera Dr. Vladimíra Pokorného a Boženy roz. Brožíkové, sestra PhMr. Václava Pokorného a Vladimíra ml."
                         },
                         {
@@ -416,7 +706,8 @@ const SITE_DATA = {
                           birthDate: "* 1. pol. 20. stol. (doplnit)",
                           deathDate: "doplnit údaj",
                           photo: null,
-                          photoCaption: "Fotografie Vladimíra Pokorného ml. (placeholder)",
+                          photoCaption: "Fotografie Vladimíra Pokorného ml.",
+                          photos: [{ url: null, caption: "Fotografie Vladimíra Pokorného ml." }],
                           description: "Syn Dr. Vladimíra Pokorného a Boženy roz. Brožíkové, bratr PhMr. Václava Pokorného a Boženy.",
                           children: [
                             {
@@ -428,8 +719,9 @@ const SITE_DATA = {
                               birthDate: "* 2. pol. 20. stol. (doplnit)",
                               deathDate: "—",
                               photo: null,
-                              photoCaption: "Fotografie Jitky (placeholder)",
-                              description: "Členka sedmé generace rodu Pokorných (dcera Vladimíra Pokorného ml.). (Prostor pro doplnění medailonku.)"
+                              photoCaption: "Fotografie Jitky",
+                              photos: [{ url: null, caption: "Fotografie Jitky (7. generace)" }],
+                              description: "Členka sedmé generace rodu Pokorných (dcera Vladimíra Pokorného ml.)."
                             },
                             {
                               id: "lenka-7",
@@ -440,8 +732,9 @@ const SITE_DATA = {
                               birthDate: "* 2. pol. 20. stol. (doplnit)",
                               deathDate: "—",
                               photo: null,
-                              photoCaption: "Fotografie Lenky (placeholder)",
-                              description: "Členka sedmé generace rodu Pokorných (dcera Vladimíra Pokorného ml.). (Prostor pro doplnění medailonku.)"
+                              photoCaption: "Fotografie Lenky",
+                              photos: [{ url: null, caption: "Fotografie Lenky (7. generace)" }],
+                              description: "Členka sedmé generace rodu Pokorných (dcera Vladimíra Pokorného ml.)."
                             }
                           ]
                         }
@@ -456,102 +749,190 @@ const SITE_DATA = {
       ]
     },
     pharmacistsLine: [
-      { gen: 1, name: "Václav Pokorný", role: "Zakladatel lékárny (1756)" },
-      { gen: 2, name: "Kajetán Pokorný", role: "Lékárník v Příboře" },
-      { gen: 3, name: "Ludvík Pokorný", role: "Lékárník a měšťan" },
-      { gen: 4, name: "Ferdinand Pokorný", role: "Lékárník, autor rodinné kroniky" },
-      { gen: 5, name: "Vladimír Pokorný", role: "Lékárník, manžel Boženy Brožíkové" },
-      { gen: 6, name: "PhMr. Václav Pokorný", role: "Lékárník a swingový skladatel (2011†)" }
+      { gen: 1, id: "vaclav-1", name: "Václav Pokorný", role: "Zakladatel lékárny (1756)" },
+      { gen: 2, id: "kajetan-2", name: "Kajetán Pokorný", role: "Lékárník v Příboře" },
+      { gen: 3, id: "ludvik-3", name: "Ludvík Pokorný", role: "Lékárník a měšťan" },
+      { gen: 4, id: "ferdinand-4", name: "PhMr. Ferdinand Pokorný", role: "Lékárník, autor rodinné kroniky" },
+      { gen: 5, id: "vladimir-5", name: "Dr. PhMr. Vladimír Pokorný", role: "Lékárník, manžel Boženy Brožíkové" },
+      { gen: 6, id: "vaclav-6", name: "PhMr. Václav Pokorný", role: "Lékárník a swingový skladatel (2011†)" }
     ],
     brozikConnection: {
       title: "Větev Brožíkových z Plzně",
       spouse: "Božena Brožíková (provd. Pokorná)",
+      personId: "bozena-brozikova-5",
       details: "Pocházela ze slavné plzeňské rodiny karosářů „Brožík a syn“, kteří stáli u zrodu prvního českého automobilu a patřili ke špičce rakousko-uherského kočárnického průmyslu."
-    },
-    modernGenerations: [
-      {
-        generationTitle: "5. generace (Rodiče Václava)",
-        members: ["Vladimír Pokorný", "Božena Pokorná (roz. Brožíková)"]
-      },
-      {
-        generationTitle: "6. generace (Sourozenci)",
-        members: ["PhMr. Václav Pokorný", "Božena", "Vladimír Pokorný ml."]
-      },
-      {
-        generationTitle: "7. generace (Děti Václava a Vladimíra)",
-        members: ["Anna", "Jitka", "Petr (hudebník – big beat)", "Lenka", "Kateřina"]
-      },
-      {
-        generationTitle: "8. generace (Vnoučata Václava Pokorného)",
-        members: ["Martin", "Kateřina", "Růžena", "Klára", "Jiří"]
-      },
-      {
-        generationTitle: "9. generace (Nejmladší generace)",
-        members: ["Jakub", "Anna", "Eliška", "Alžběta", "Barbora", "Celestýna", "Matěj", "Alžběta"]
-      }
-    ]
+    }
   },
 
+  // Media Gallery Items used across Main Page, Historie lékárny subpage, and Václav Pokorný subpage
+  // mediaType: 'pdf' | 'audio' | 'photo'
+  // tileSize: 'wide' | 'tall' | 'large' | 'normal' | 'compact' (for Google Photos collage layout)
+  // pages: array containing 'main', 'lekarna', 'vaclav'
   archiveItems: [
     {
       id: "doc-1",
       category: "kroniky",
+      mediaType: "pdf",
+      tileSize: "large",
+      pages: ["main", "lekarna"],
       title: "Kronika rodu Pokorných",
       date: "19. století",
-      author: "Ferdinand Pokorný",
-      description: "Rukopisná kronika mapující počátky lékárny „U Panny Marie pomocné“ od roku 1756, působení piaristů v Příboře a založení reálného gymnázia.",
+      author: "PhMr. Ferdinand Pokorný",
+      description: "Rukopisná kronika mapující počátky lékárny „U Panny Marie pomocné“ od roku 1756, působení piaristů v Příboře a založení reálného gymnázia Ferdinandem Pokorným.",
       transcription: "„Leta Páně 1756 předek náš Václav Pokorný lékárnu v Příboře založil s heslem Poctivost a práce...“",
-      placeholderType: "chronicle"
-    },
-    {
-      id: "doc-2",
-      category: "dokumenty",
-      title: "Lékárnický diplom – PhMr. Václav Pokorný",
-      date: "40. léta 20. století",
-      author: "Univerzita Karlova v Praze",
-      description: "Oficiální diplom magistra farmacie udělený Václavu Pokornému v Praze.",
-      transcription: "Diplom udělující titul PhMr. (Pharmaciae Magister).",
-      placeholderType: "diploma"
-    },
-    {
-      id: "doc-3",
-      category: "noty",
-      title: "Partitura a tisk nakladatelství R. A. Dvorský",
-      date: "1942–1945",
-      author: "Václav Pokorný",
-      description: "Původní notový tisk swingové skladby vydaný v pražském nakladatelství R. A. Dvorského během 2. světové války.",
-      transcription: "Hudba: Václav Pokorný. Vydal R. A. Dvorský, Praha.",
-      placeholderType: "sheetmusic"
+      pageCount: 48,
+      fileLabel: "Kronika_rodu_Pokornych_1898.pdf"
     },
     {
       id: "doc-4",
       category: "fotografie",
-      title: "Historické průčelí lékárny U Panny Marie pomocné",
+      mediaType: "photo",
+      tileSize: "wide",
+      pages: ["main", "lekarna"],
+      title: "Historické průčelí a portál lékárny U Panny Marie pomocné",
       date: "cca 1925",
       author: "Rodinný archiv Příbor",
-      description: "Dobová fotografie příborské lékárny za působení páté generace (Vladimír Pokorný).",
+      description: "Dobová série fotografií příborské lékárny v domě č. p. 54 za působení páté generace (Dr. Vladimír Pokorný).",
       transcription: "Zadní strana fotografie: „Lékárna na náměstí v Příboře, léto 1925.“",
-      placeholderType: "photo"
+      photos: [
+        { url: null, caption: "Vstupní portál a výloha lékárny na náměstí v Příboře (1925)" },
+        { url: null, caption: "Historická oficína s dřevěným táflováním a stojatkami" },
+        { url: null, caption: "Pohled na podloubí domu č. p. 54 v Příboře" },
+        { url: null, caption: "Dr. Vladimír Pokorný před vchodem do lékárny" }
+      ]
+    },
+    {
+      id: "doc-2",
+      category: "dokumenty",
+      mediaType: "pdf",
+      tileSize: "tall",
+      pages: ["main", "lekarna", "vaclav"],
+      title: "Lékárnický diplom – PhMr. Václav Pokorný",
+      date: "1945",
+      author: "Univerzita Karlova v Praze",
+      description: "Oficiální univerzitní diplom magistra farmacie udělený PhMr. Václavu Pokornému v Praze.",
+      transcription: "Diplom udělující titul PhMr. (Pharmaciae Magister) Václavu Pokornému narozenému v Příboře.",
+      pageCount: 2,
+      fileLabel: "Diplom_PhMr_Vaclav_Pokorny_UK.pdf"
+    },
+    {
+      id: "doc-3",
+      category: "noty",
+      mediaType: "pdf",
+      tileSize: "normal",
+      pages: ["main", "vaclav"],
+      title: "Partitura a tisk nakladatelství R. A. Dvorský",
+      date: "1942–1945",
+      author: "PhMr. Václav Pokorný",
+      description: "Původní notový tisk swingové skladby vydaný v pražském nakladatelství R. A. Dvorského během 2. světové války.",
+      transcription: "Hudba: Václav Pokorný. Vydal R. A. Dvorský, Praha.",
+      pageCount: 6,
+      fileLabel: "Partitura_RA_Dvorsky_Pokorny.pdf"
+    },
+    {
+      id: "doc-audio-1",
+      category: "hudba",
+      mediaType: "audio",
+      tileSize: "wide",
+      pages: ["main", "vaclav"],
+      title: "Rozhovor v pořadu Tandem – Český rozhlas",
+      date: "3. 12. 2008",
+      author: "PhMr. Václav Pokorný & Jan Rosák",
+      description: "Rozhlasové vyprávění PhMr. Václava Pokorného o šesti generacích příborských lékárníků, studiích za války a spolupráci s R. A. Dvorským a Karlem Vlachem.",
+      transcription: "Zvukový záznam z archivu Českého rozhlasu (stopáž 22:03).",
+      audioSrc: "uschovna/tandem--03_12_2008--vaclav_pokorny_hudebni_skladatel--827226.mp3",
+      duration: "22:03"
     },
     {
       id: "doc-5",
       category: "fotografie",
+      mediaType: "photo",
+      tileSize: "normal",
+      pages: ["main", "lekarna"],
       title: "Továrna Brožík a syn v Plzni",
       date: "Počátek 20. století",
       author: "Archiv rodiny Brožíkových",
-      description: "Fotografie karosářské dílny rodiny Boženy Brožíkové v Plzni.",
+      description: "Fotografie karosářské dílny a prvního českého automobilu rodiny Boženy Brožíkové v Plzni.",
       transcription: "Karosárna a továrna na vozy Václav Brožík a syn, Plzeň.",
-      placeholderType: "photo"
+      photos: [
+        { url: null, caption: "Hlavní budova továrny Václav Brožík a syn v Plzni" },
+        { url: null, caption: "Kočáry a první český automobil vyrobený firmou Brožík" },
+        { url: null, caption: "Rodinný portrét Boženy Brožíkové (provd. Pokorné)" }
+      ]
     },
     {
       id: "doc-6",
       category: "dokumenty",
+      mediaType: "pdf",
+      tileSize: "normal",
+      pages: ["main", "vaclav"],
       title: "Divadelní program: Divotvorný hrnec v Příboře",
       date: "1947",
       author: "Kulturní spolek Příbor",
-      description: "Dobový program a poznámky k poválečnému uvedení hry Divotvorný hrnec po návratu Václava Pokorného do Příbora.",
-      transcription: "Hudební nastudování a doprovod: PhMr. Václav Pokorný.",
-      placeholderType: "document"
+      description: "Dobový program a poznámky k poválečnému uvedení hry Divotvorný hrnec po návratu PhMr. Václava Pokorného do Příbora.",
+      transcription: "Hudební nastudování a klavírní doprovod: PhMr. Václav Pokorný.",
+      pageCount: 8,
+      fileLabel: "Program_Divotvorny_hrnec_Pribor_1947.pdf"
+    },
+    {
+      id: "doc-7",
+      category: "kroniky",
+      mediaType: "pdf",
+      tileSize: "wide",
+      pages: ["main", "lekarna"],
+      title: "Kniha Příborský okres (Vlastivěda Moravská)",
+      date: "1917",
+      author: "PhMr. Ferdinand Pokorný",
+      description: "Historicko-vlastivědná monografie příborského okresu sepsaná starostou a lékárníkem Ferdinandem Pokorným.",
+      transcription: "Vydalo Musejní společenstvo v Brně roku 1917. Sepsal PhMr. Ferdinand Pokorný.",
+      pageCount: 312,
+      fileLabel: "Priborsky_okres_Ferdinand_Pokorny_1917.pdf"
+    },
+    {
+      id: "doc-8",
+      category: "fotografie",
+      mediaType: "photo",
+      tileSize: "large",
+      pages: ["main", "vaclav"],
+      title: "Hudební život PhMr. Václava Pokorného",
+      date: "1940–2010",
+      author: "Rodinný hudební archiv",
+      description: "Série fotografií zachycujících Václava Pokorného u klavíru, s orchestry 60. let, v divadle Semafor i při natáčení s kapelou Shadde Yadda.",
+      transcription: "Archivní snímky z hudební dráhy PhMr. Václava Pokorného.",
+      photos: [
+        { url: null, caption: "PhMr. Václav Pokorný u klavíru při komponování" },
+        { url: null, caption: "Spolupráce s Václavem Markem a divadlem Semafor (album Několik přání)" },
+        { url: null, caption: "Zkouška s vokálním souborem Eva Kvartet" },
+        { url: null, caption: "Nové nahrávky se zpěvačkou Dájou Šimíčkovou a Shadde Yadda" }
+      ]
+    },
+    {
+      id: "doc-9",
+      category: "noty",
+      mediaType: "pdf",
+      tileSize: "tall",
+      pages: ["main", "vaclav"],
+      title: "Aranžmá pro Orchestr Karla Vlacha",
+      date: "60. léta 20. století",
+      author: "PhMr. Václav Pokorný",
+      description: "Rukopisná partitura a rozpis hlasů pro dechovou a rytmickou sekci Orchestru Karla Vlacha.",
+      transcription: "Partitura – instrumentace a aranžmá: Václav Pokorný, Praha.",
+      pageCount: 14,
+      fileLabel: "Partitura_Orchestr_Karla_Vlacha.pdf"
+    },
+    {
+      id: "doc-audio-2",
+      category: "hudba",
+      mediaType: "audio",
+      tileSize: "normal",
+      pages: ["main", "vaclav"],
+      title: "Pořad Světla ramp – Václav Pokorný & Václav Marek",
+      date: "2008",
+      author: "Klasik FM",
+      description: "Rozhlasový pořad věnovaný swingovým skladbám Václava Pokorného a albu Několik přání.",
+      transcription: "Archivní nahrávka pořadu Světla ramp (Klasik FM).",
+      audioSrc: "uschovna/01 Svretla Ramp_KlasikFM_Pokorny_Marek.wma",
+      duration: "28:10"
     }
   ]
 };
