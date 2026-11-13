@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  applyCmsDraftPreviewIfActive();
   applyPageTextFromCms();
   initMainPageTimeline();
   initFullPharmacyPage();
@@ -8,6 +9,72 @@ document.addEventListener('DOMContentLoaded', () => {
   initUniversalModal();
   handleDeepLinkHash();
 });
+
+// ==========================================================================
+// -1. Live CMS Draft Preview Mode (?cms_preview=1 + localStorage draft)
+// ==========================================================================
+function applyCmsDraftPreviewIfActive() {
+  const params = new URLSearchParams(window.location.search);
+  const isPreviewUrl = params.get('cms_preview') === '1';
+  const isPreviewSession = sessionStorage.getItem('pokorny_cms_preview_active') === '1';
+
+  if (!isPreviewUrl && !isPreviewSession) return;
+
+  if (isPreviewUrl) {
+    sessionStorage.setItem('pokorny_cms_preview_active', '1');
+  }
+
+  try {
+    const rawDraft = localStorage.getItem('pokorny_cms_draft_data');
+    if (rawDraft) {
+      const parsedDraft = JSON.parse(rawDraft);
+      if (parsedDraft && typeof parsedDraft === 'object') {
+        Object.assign(SITE_DATA, parsedDraft);
+      }
+    }
+  } catch (e) {
+    console.warn('CMS Preview draft parse error:', e);
+  }
+
+  renderCmsPreviewBanner();
+
+  // Listen for live updates from the CMS tab so preview updates immediately
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'pokorny_cms_draft_data' && e.newValue) {
+      try {
+        const updated = JSON.parse(e.newValue);
+        Object.assign(SITE_DATA, updated);
+        applyPageTextFromCms();
+        initMainPageTimeline();
+        initFullPharmacyPage();
+        initFullVaclavPage();
+        initAudioPlayerPanel();
+        initMediaGallery();
+      } catch (err) {}
+    }
+  });
+}
+
+function renderCmsPreviewBanner() {
+  if (document.getElementById('cms-live-preview-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'cms-live-preview-banner';
+  banner.style.cssText = 'background:#b86b14; color:#fff; padding:0.45rem 1.25rem; font-family:Inter,sans-serif; font-size:0.82rem; font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:1rem; z-index:9999; position:relative; box-shadow:0 2px 8px rgba(0,0,0,0.25);';
+  banner.innerHTML = `
+    <span>🔍 <strong>REŽIM NÁHLEDU Z CMS:</strong> Prohlížíte si nepublikovanou pracovní verzi webu.</span>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <button type="button" id="btn-exit-cms-preview" style="background:#181d23; color:#fff; border:none; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer; font-weight:600; font-size:0.78rem;">Ukončit náhled (zobrazit veřejný web)</button>
+    </div>
+  `;
+  document.body.prepend(banner);
+
+  document.getElementById('btn-exit-cms-preview')?.addEventListener('click', () => {
+    sessionStorage.removeItem('pokorny_cms_preview_active');
+    const url = new URL(window.location.href);
+    url.searchParams.delete('cms_preview');
+    window.location.href = url.toString();
+  });
+}
 
 // ==========================================================================
 // 0. Apply CMS-managed Page Titles, Subtitles, Paragraphs & Hero Images

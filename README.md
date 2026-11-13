@@ -53,4 +53,7 @@ node server.js
   5. **Hudební přehrávač (Úvod)** – správa skladeb v přehrávači na hlavní stránce.
   6. **Rodokmen a lékárníci** – úprava medailonků, životopisů, dat a fotografií všech osob v rodokmenu (1.–9. generace), přidávání dětí či partnerů a úprava pásu 6 generací lékárníků.
   7. **Správce souborů** – nahrávání fotografií, PDF a audio souborů z počítače přímo na server.
-  8. **Zálohování** – každé kliknutí na *„💾 Uložit a publikovat změny“* automaticky vytvoří zálohu v `data/backups/`. Kdykoliv lze také stáhnout či nahrát kompletní `.json` zálohu jedním tlačítkem v horní liště.
+  8. **Živý náhled změn v novém panelu (`🔍 Náhled změn ↗`)** – kliknutím na tlačítko *„🔍 Náhled změn ↗“* v horní liště CMS se v novém panelu prohlížeče otevře živý náhled webu s vašimi rozpracovanými úpravami ještě předtím, než je publikujete naživo.
+  9. **Rozdělené ukládání konceptu a publikování na web**:
+     - **„💾 Uložit rozpracované“** – uloží vaše dosavadní úpravy v CMS na server (`data/draft-data.json`), takže se k nim můžete kdykoliv později vrátit, aniž by se změny projevily na veřejném webu.
+     - **„🚀 Publikovat na web“** – propíše změny naživo do `data/content.js` a zároveň automaticky vytvoří zálohu předchozí verze v `data/backups/`. Kdykoliv lze také stáhnout či nahrát kompletní `.json` zálohu jedním tlačítkem v horní liště.

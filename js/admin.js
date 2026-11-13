@@ -5,6 +5,7 @@
 
 let cmsData = null;
 let serverFiles = [];
+let csrfToken = '';
 let activeTab = 'pages';
 let activePageSubtab = 'home';
 let activeVaclavSubtab = 'photos';
@@ -12,6 +13,7 @@ let activeTreeSubtab = 'members';
 let selectedPersonId = 'vaclav-6';
 let archiveFilterCategory = 'all';
 let isDirty = false;
+let hasUnpublishedDraft = false;
 let currentFilePickerCallback = null;
 let currentFilePickerFilter = null; // 'image' | 'pdf' | 'audio' | null
 
@@ -37,15 +39,24 @@ function ensureDataDefaults() {
   if (!cmsData.familyTree) cmsData.familyTree = { treeRoot: {}, pharmacistsLine: [], brozikConnection: {} };
 }
 
-function markDirty(state = true) {
+function markDirty(state = true, draftSaved = hasUnpublishedDraft) {
   isDirty = state;
+  hasUnpublishedDraft = draftSaved;
+  // Sync current working draft to localStorage so Live Preview tab always reflects latest edits
+  try {
+    localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(cmsData));
+  } catch (e) {}
+
   const pill = document.getElementById('cms-dirty-indicator');
   if (!pill) return;
   if (isDirty) {
-    pill.textContent = '● Neuložené změny (klikněte na Uložit)';
+    pill.textContent = '● Neuložené úpravy (uložte rozpracované nebo publikujte)';
+    pill.className = 'cms-status-pill dirty';
+  } else if (hasUnpublishedDraft) {
+    pill.textContent = '📝 Uloženo jako koncept (zatím nepublikováno na web)';
     pill.className = 'cms-status-pill dirty';
   } else {
-    pill.textContent = '✓ Všechny změny uloženy';
+    pill.textContent = '✓ Publikováno naživo';
     pill.className = 'cms-status-pill saved';
   }
 }
@@ -78,6 +89,13 @@ async function initAuthAndStatus() {
     const data = await res.json();
     if (data && data.authenticated) {
       serverFiles = data.files || [];
+      csrfToken = data.csrfToken || '';
+      if (data.hasDraft && data.draftData) {
+        cmsData = data.draftData;
+        ensureDataDefaults();
+        markDirty(false, true);
+        showToast('Načteny vaše dříve uložené rozpracované úpravy.');
+      }
       showCmsApp();
     } else {
       showLoginScreen();
@@ -121,8 +139,14 @@ function wireGlobalControls() {
       const data = await res.json();
       if (res.ok && data.ok) {
         serverFiles = data.files || [];
+        csrfToken = data.csrfToken || '';
+        if (data.hasDraft && data.draftData) {
+          cmsData = data.draftData;
+          ensureDataDefaults();
+          markDirty(false, true);
+        }
         showCmsApp();
-        showToast('Přihlášení proběhlo úspěšně.');
+        showToast(data.hasDraft ? 'Přihlášeno — načten rozpracovaný koncept.' : 'Přihlášení proběhlo úspěšně.');
       } else {
         errEl.textContent = data.error || 'Nesprávné heslo.';
         errEl.hidden = false;
@@ -145,8 +169,17 @@ function wireGlobalControls() {
     showLoginScreen();
   });
 
-  // Save All
-  document.getElementById('btn-save-all')?.addEventListener('click', saveAllChangesToServer);
+  // Save Draft (without publishing live) & Publish Live
+  document.getElementById('btn-save-draft')?.addEventListener('click', saveDraftToServer);
+  document.getElementById('btn-publish-live')?.addEventListener('click', publishChangesLiveToServer);
+
+  // Open Live Preview in a New Tab
+  document.getElementById('btn-preview-changes')?.addEventListener('click', openPreviewInNewTab);
+
+  // Ensure clicking "Veřejný web" clears preview session flag so the user sees the real published version
+  document.getElementById('link-live-site')?.addEventListener('click', () => {
+    sessionStorage.removeItem('pokorny_cms_preview_active');
+  });
 
   // Export JSON Backup
   document.getElementById('btn-export-json')?.addEventListener('click', () => {
@@ -212,24 +245,80 @@ function wireGlobalControls() {
   });
 }
 
-async function saveAllChangesToServer() {
-  const btn = document.getElementById('btn-save-all');
+function openPreviewInNewTab() {
+  try {
+    localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(cmsData));
+  } catch (e) {}
+
+  // Open the page matching the currently edited tab in a new browser tab
+  let targetUrl = 'index.html?cms_preview=1';
+  if (activeTab === 'pharmacy-timeline' || (activeTab === 'pages' && activePageSubtab === 'lekarna')) {
+    targetUrl = 'historie-lekarny.html?cms_preview=1';
+  } else if (activeTab === 'vaclav-content' || (activeTab === 'pages' && activePageSubtab === 'vaclav')) {
+    targetUrl = 'vaclav-pokorny.html?cms_preview=1';
+  } else if (activeTab === 'tree') {
+    targetUrl = 'rodokmen.html?cms_preview=1';
+  }
+
+  window.open(targetUrl, '_blank');
+}
+
+async function saveDraftToServer() {
+  const btn = document.getElementById('btn-save-draft');
   const origText = btn.textContent;
-  btn.textContent = '⏳ Ukládám...';
+  btn.textContent = '⏳ Ukládám koncept...';
+  btn.disabled = true;
+
+  try {
+    localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(cmsData));
+  } catch (e) {}
+
+  try {
+    const res = await fetch('api.php?action=save_draft', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
+      },
+      body: JSON.stringify({ siteData: cmsData })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      markDirty(false, true);
+      showToast('💾 Rozpracované úpravy byly uloženy na později (veřejný web zůstává beze změny).');
+    } else {
+      alert('Chyba při ukládání konceptu: ' + (data.error || 'Neznámá chyba'));
+    }
+  } catch (err) {
+    markDirty(false, true);
+    showToast('💾 Koncept uložen v prohlížeči.');
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
+}
+
+async function publishChangesLiveToServer() {
+  const btn = document.getElementById('btn-publish-live');
+  const origText = btn.textContent;
+  btn.textContent = '⏳ Publikuji...';
   btn.disabled = true;
 
   try {
     const res = await fetch('api.php?action=save', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
+      },
       body: JSON.stringify({ siteData: cmsData })
     });
     const data = await res.json();
     if (res.ok && data.ok) {
-      markDirty(false);
-      showToast('✓ Všechny změny byly úspěšně uloženy a publikovány na web!');
+      markDirty(false, false);
+      showToast('🚀 Všechny změny byly úspěšně publikovány na veřejný web!');
     } else {
-      alert('Chyba při ukládání: ' + (data.error || 'Neznámá chyba'));
+      alert('Chyba při publikování: ' + (data.error || 'Neznámá chyba'));
     }
   } catch (err) {
     alert('Nepodařilo se spojit se serverem. Ujistěte se, že běží server (node server.js) nebo PHP hosting.');
@@ -1609,7 +1698,10 @@ function renderMediaLibraryTab(ws) {
       try {
         const res = await fetch('api.php?action=delete_file', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+          },
           body: JSON.stringify({ path: pathStr })
         });
         const data = await res.json();
@@ -1707,6 +1799,9 @@ async function uploadFileToServer(file, autoSelectInModal) {
   try {
     const res = await fetch('api.php?action=upload', {
       method: 'POST',
+      headers: {
+        'X-CSRF-Token': csrfToken
+      },
       body: formData
     });
     const data = await res.json();
@@ -1780,7 +1875,10 @@ function renderSettingsTab(ws) {
     try {
       const res = await fetch('api.php?action=change_password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
         body: JSON.stringify({ newPassword: p1 })
       });
       const data = await res.json();

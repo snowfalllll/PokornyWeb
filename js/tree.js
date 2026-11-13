@@ -1,7 +1,63 @@
 document.addEventListener('DOMContentLoaded', () => {
+  applyTreeCmsDraftPreviewIfActive();
   applyTreeGlobalCmsText();
   initGenealogyTreePage();
 });
+
+function applyTreeCmsDraftPreviewIfActive() {
+  const params = new URLSearchParams(window.location.search);
+  const isPreviewUrl = params.get('cms_preview') === '1';
+  const isPreviewSession = sessionStorage.getItem('pokorny_cms_preview_active') === '1';
+
+  if (!isPreviewUrl && !isPreviewSession) return;
+
+  if (isPreviewUrl) {
+    sessionStorage.setItem('pokorny_cms_preview_active', '1');
+  }
+
+  try {
+    const rawDraft = localStorage.getItem('pokorny_cms_draft_data');
+    if (rawDraft) {
+      const parsedDraft = JSON.parse(rawDraft);
+      if (parsedDraft && typeof parsedDraft === 'object') {
+        Object.assign(SITE_DATA, parsedDraft);
+      }
+    }
+  } catch (e) {}
+
+  if (!document.getElementById('cms-live-preview-banner')) {
+    const banner = document.createElement('div');
+    banner.id = 'cms-live-preview-banner';
+    banner.setAttribute('data-ui-panel', 'true');
+    banner.style.cssText = 'background:#b86b14; color:#fff; padding:0.4rem 1.25rem; font-family:Inter,sans-serif; font-size:0.8rem; font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:1rem; z-index:9999; position:relative;';
+    banner.innerHTML = `
+      <span>🔍 <strong>REŽIM NÁHLEDU Z CMS:</strong> Prohlížíte si nepublikovanou pracovní verzi rodokmenu.</span>
+      <div style="display:flex; gap:0.5rem; align-items:center;">
+        <button type="button" id="btn-exit-cms-preview" style="background:#181d23; color:#fff; border:none; padding:0.2rem 0.6rem; border-radius:4px; cursor:pointer; font-weight:600; font-size:0.76rem;">Ukončit náhled (zobrazit veřejný web)</button>
+      </div>
+    `;
+    document.body.prepend(banner);
+
+    document.getElementById('btn-exit-cms-preview')?.addEventListener('click', () => {
+      sessionStorage.removeItem('pokorny_cms_preview_active');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('cms_preview');
+      window.location.href = url.toString();
+    });
+  }
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'pokorny_cms_draft_data' && e.newValue) {
+      try {
+        const updated = JSON.parse(e.newValue);
+        Object.assign(SITE_DATA, updated);
+        PERSON_MAP.clear();
+        applyTreeGlobalCmsText();
+        initGenealogyTreePage();
+      } catch (err) {}
+    }
+  });
+}
 
 function applyTreeGlobalCmsText() {
   if (!SITE_DATA.pageText) return;

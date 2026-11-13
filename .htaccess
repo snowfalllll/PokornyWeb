@@ -1,0 +1,50 @@
+# ==============================================================================
+# Pokorní z Příbora — Apache .htaccess (pro český webhosting: Wedos, Forpsi, Active24...)
+# ==============================================================================
+
+Options -Indexes
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # 1. Automatické přesměrování na HTTPS (kromě localhostu)
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP_HOST} !^localhost [NC]
+  RewriteCond %{HTTP_HOST} !^127\.0\.0\.1
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # 2. Zakázat přístup ke skrytým souborům (.git, .env), poznámkám a pracovním .docx dokumentům
+  RewriteRule (^|/)\.(?!well-known/) - [F,L]
+  RewriteRule ^notes/ - [F,L]
+  RewriteRule ^server\.js$ - [F,L]
+  RewriteRule \.(docx|md)$ - [F,L]
+
+  # 3. Čisté URL adresy bez .html (např. /admin -> /admin.html, /rodokmen -> /rodokmen.html)
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME}\.html -f
+  RewriteRule ^([^/]+)/?$ $1.html [L]
+</IfModule>
+
+# 4. Vlastní chybová stránka 404
+ErrorDocument 404 /404.html
+
+# 5. Bezpečnostní HTTP hlavičky
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+
+  # Zajistit, aby prohlížeče vždy načetly nejnovější verzi dat po uložení v CMS
+  <FilesMatch "^(content\.js|site-data\.json)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires 0
+  </FilesMatch>
+</IfModule>
+
+# 6. GZIP komprese pro rychlé načítání
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript application/javascript application/json image/svg+xml application/xml
+</IfModule>

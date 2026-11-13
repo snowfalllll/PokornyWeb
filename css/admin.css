@@ -234,6 +234,17 @@ body {
   background: #235a39;
 }
 
+.cms-btn-preview {
+  background: #b86b14;
+  color: #ffffff;
+  border-color: #d68529;
+  box-shadow: 0 2px 8px rgba(184, 107, 20, 0.35);
+}
+
+.cms-btn-preview:hover {
+  background: #96550d;
+}
+
 .cms-btn-outline {
   background: rgba(255, 255, 255, 0.08);
   color: #f4efe6;
@@ -741,6 +752,87 @@ body {
   display: flex;
   gap: 0.4rem;
   justify-content: space-between;
+}
+
+/* Live Preview Modal */
+.cms-preview-window {
+  background: #14181d;
+  border: 2px solid var(--accent-gold);
+  border-radius: 8px;
+  width: 96vw;
+  height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.65);
+}
+
+.cms-preview-toolbar {
+  background: var(--bg-topbar);
+  color: #ffffff;
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cms-preview-toolbar-left,
+.cms-preview-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.cms-preview-badge {
+  background: rgba(184, 107, 20, 0.28);
+  border: 1px solid #d68529;
+  color: #ffd399;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.28rem 0.65rem;
+  border-radius: 4px;
+}
+
+.cms-preview-page-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.22rem;
+  border-radius: 6px;
+}
+
+.cms-preview-page-btn {
+  background: transparent;
+  color: #cbd2d9;
+  border: none;
+  padding: 0.34rem 0.72rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cms-preview-page-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cms-preview-page-btn.active {
+  background: var(--accent-gold);
+  color: #ffffff;
+}
+
+.cms-preview-iframe {
+  width: 100%;
+  flex: 1;
+  border: none;
+  background: #f4efe6;
 }
 
 /* Toast */

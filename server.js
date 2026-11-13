@@ -1,8 +1,7 @@
 /**
  * Pokorní z Příbora — Local Development & Self-Hosted Node.js Server
  * Serves static files AND provides the exact same `/api.php?action=...` endpoints
- * so you can run the CMS locally with `node server.js` (zero npm packages needed)
- * or deploy the folder directly to any Czech PHP hosting (Wedos, Forpsi, Active24).
+ * with Brute-Force rate limiting, CSRF protection, and protected `/data/` files.
  */
 
 const http = require('http');
@@ -20,6 +19,7 @@ const USCHOVNA_DIR = path.join(BASE_DIR, 'uschovna');
 const CONFIG_FILE = path.join(DATA_DIR, 'admin-config.json');
 const CONTENT_JS_FILE = path.join(DATA_DIR, 'content.js');
 const SITE_JSON_FILE = path.join(DATA_DIR, 'site-data.json');
+const DRAFT_JSON_FILE = path.join(DATA_DIR, 'draft-data.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
@@ -33,7 +33,10 @@ if (!fs.existsSync(CONFIG_FILE)) {
   }, null, 2), 'utf8');
 }
 
-const activeSessions = new Set();
+// Map sessionToken -> { csrfToken, createdAt }
+const activeSessions = new Map();
+// Map ip -> { count, firstAttempt }
+const loginAttempts = new Map();
 
 function getAdminConfig() {
   try {
@@ -57,10 +60,40 @@ function parseCookies(req) {
   return list;
 }
 
-function isAuthenticated(req) {
+function getSession(req) {
   const cookies = parseCookies(req);
   const token = cookies.pokorny_cms_token;
-  return Boolean(token && activeSessions.has(token));
+  if (!token || !activeSessions.has(token)) return null;
+  return activeSessions.get(token);
+}
+
+function checkRateLimit(ip, res) {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const entry = loginAttempts.get(ip);
+  if (entry) {
+    if (now - entry.firstAttempt > windowMs) {
+      loginAttempts.delete(ip);
+    } else if (entry.count >= 5) {
+      const remMin = Math.max(1, Math.ceil((windowMs - (now - entry.firstAttempt)) / 60000));
+      sendJson(res, 429, {
+        ok: false,
+        error: `Příliš mnoho neúspěšných pokusů o přihlášení. Zkuste to prosím znovu za ${remMin} min.`
+      });
+      return false;
+    }
+  }
+  return true;
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: now });
+  } else {
+    entry.count += 1;
+  }
 }
 
 function listMediaFiles() {
@@ -74,7 +107,7 @@ function listMediaFiles() {
       if (stat.isFile()) {
         const ext = path.extname(entry).toLowerCase().slice(1);
         let type = 'other';
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(ext)) type = 'image';
+        if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) type = 'image';
         else if (ext === 'pdf') type = 'pdf';
         else if (['mp3', 'wav', 'ogg', 'm4a', 'wma', 'flac'].includes(ext)) type = 'audio';
         files.push({
@@ -97,6 +130,9 @@ function listMediaFiles() {
 function sendJson(res, statusCode, data, extraHeaders = {}) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
     ...extraHeaders
   });
   res.end(JSON.stringify(data));
@@ -129,7 +165,7 @@ function parseMultipartSingleFile(buffer, contentType) {
   const startIdx = buffer.indexOf(boundaryBuf);
   if (startIdx === -1) return null;
 
-  const headerStart = startIdx + boundaryBuf.length + 2; // skip \r\n
+  const headerStart = startIdx + boundaryBuf.length + 2;
   const headerEnd = buffer.indexOf(Buffer.from('\r\n\r\n'), headerStart);
   if (headerEnd === -1) return null;
 
@@ -156,19 +192,35 @@ function sanitizeFileName(origName) {
   return { base, ext };
 }
 
+function readDraftData() {
+  try {
+    if (fs.existsSync(DRAFT_JSON_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(DRAFT_JSON_FILE, 'utf8'));
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function handleApiRequest(req, res, parsedUrl) {
   const action = parsedUrl.query.action || 'status';
+  const clientIp = req.socket.remoteAddress || 'local';
 
   if (action === 'status') {
-    const authed = isAuthenticated(req);
+    const sess = getSession(req);
+    const draftData = sess ? readDraftData() : null;
     return sendJson(res, 200, {
       ok: true,
-      authenticated: authed,
-      files: authed ? listMediaFiles() : []
+      authenticated: Boolean(sess),
+      csrfToken: sess ? sess.csrfToken : null,
+      hasDraft: Boolean(draftData),
+      draftData,
+      files: sess ? listMediaFiles() : []
     });
   }
 
   if (action === 'login' && req.method === 'POST') {
+    if (!checkRateLimit(clientIp, res)) return;
     const raw = await readRequestBody(req);
     let body = {};
     try { body = JSON.parse(raw.toString('utf8')); } catch (e) {}
@@ -177,16 +229,23 @@ async function handleApiRequest(req, res, parsedUrl) {
     const cfg = getAdminConfig();
 
     if (hash === cfg.passwordHash) {
+      loginAttempts.delete(clientIp);
       const token = crypto.randomBytes(24).toString('hex');
-      activeSessions.add(token);
+      const csrfToken = crypto.randomBytes(24).toString('hex');
+      activeSessions.set(token, { csrfToken, createdAt: Date.now() });
+      const draftData = readDraftData();
       return sendJson(res, 200, {
         ok: true,
         authenticated: true,
+        csrfToken,
+        hasDraft: Boolean(draftData),
+        draftData,
         files: listMediaFiles()
       }, {
-        'Set-Cookie': `pokorny_cms_token=${token}; Path=/; HttpOnly; SameSite=Lax`
+        'Set-Cookie': `pokorny_cms_token=${token}; Path=/; HttpOnly; SameSite=Strict`
       });
     } else {
+      recordFailedLogin(clientIp);
       return sendJson(res, 403, { ok: false, error: 'Nesprávné heslo.' });
     }
   }
@@ -199,8 +258,32 @@ async function handleApiRequest(req, res, parsedUrl) {
     });
   }
 
-  if (!isAuthenticated(req)) {
+  const sess = getSession(req);
+  if (!sess) {
     return sendJson(res, 401, { ok: false, error: 'Nejste přihlášeni. Prosím přihlaste se heslem.' });
+  }
+
+  const headerCsrf = req.headers['x-csrf-token'];
+  if (!headerCsrf || headerCsrf !== sess.csrfToken) {
+    return sendJson(res, 403, { ok: false, error: 'Neplatný bezpečnostní CSRF token. Obnovte prosím stránku.' });
+  }
+
+  if (action === 'save_draft' && req.method === 'POST') {
+    const raw = await readRequestBody(req);
+    let payload = {};
+    try { payload = JSON.parse(raw.toString('utf8')); } catch (e) {}
+
+    if (!payload || typeof payload.siteData !== 'object') {
+      return sendJson(res, 400, { ok: false, error: 'Neplatný formát dat konceptu.' });
+    }
+
+    const prettyJson = JSON.stringify(payload.siteData, null, 2);
+    fs.writeFileSync(DRAFT_JSON_FILE, prettyJson, 'utf8');
+
+    return sendJson(res, 200, {
+      ok: true,
+      savedDraftAt: new Date().toISOString()
+    });
   }
 
   if (action === 'save' && req.method === 'POST') {
@@ -230,6 +313,9 @@ async function handleApiRequest(req, res, parsedUrl) {
     const jsContent = `const SITE_DATA = ${prettyJson};\n`;
     fs.writeFileSync(CONTENT_JS_FILE, jsContent, 'utf8');
     fs.writeFileSync(SITE_JSON_FILE, prettyJson, 'utf8');
+    if (fs.existsSync(DRAFT_JSON_FILE)) {
+      try { fs.unlinkSync(DRAFT_JSON_FILE); } catch (e) {}
+    }
 
     return sendJson(res, 200, {
       ok: true,
@@ -245,7 +331,7 @@ async function handleApiRequest(req, res, parsedUrl) {
     }
 
     const { base, ext } = sanitizeFileName(parsedFile.filename);
-    const allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'wma', 'flac'];
+    const allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'wma', 'flac'];
     if (!allowed.includes(ext)) {
       return sendJson(res, 400, { ok: false, error: `Nepovolený typ souboru (.${ext}).` });
     }
@@ -293,8 +379,8 @@ async function handleApiRequest(req, res, parsedUrl) {
     let body = {};
     try { body = JSON.parse(raw.toString('utf8')); } catch (e) {}
     const newPassword = String(body.newPassword || '').trim();
-    if (newPassword.length < 4) {
-      return sendJson(res, 400, { ok: false, error: 'Nové heslo musí mít alespoň 4 znaky.' });
+    if (newPassword.length < 6) {
+      return sendJson(res, 400, { ok: false, error: 'Nové heslo musí mít alespoň 6 znaků.' });
     }
     const newHash = crypto.createHash('sha256').update(newPassword).digest('hex');
     fs.writeFileSync(CONFIG_FILE, JSON.stringify({
@@ -312,6 +398,8 @@ const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -326,6 +414,14 @@ const MIME_TYPES = {
   '.wma': 'audio/x-ms-wma'
 };
 
+const BLOCKED_PATTERNS = [
+  /^\/data\/(admin-config\.json|login-attempts\.json|site-data\.json|draft-data\.json)$/i,
+  /^\/data\/backups(\/|$)/i,
+  /^\/notes(\/|$)/i,
+  /^\/server\.js$/i,
+  /\/\./
+];
+
 const server = http.createServer(async (req, res) => {
   try {
     const parsedUrl = url.parse(req.url, true);
@@ -335,15 +431,28 @@ const server = http.createServer(async (req, res) => {
       return await handleApiRequest(req, res, parsedUrl);
     }
 
+    if (BLOCKED_PATTERNS.some(rx => rx.test(pathname))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('403 Přístup odepřen');
+      return;
+    }
+
     if (pathname === '/' || pathname === '') pathname = '/index.html';
-    if (pathname === '/admin' || pathname === '/admin/') pathname = '/admin.html';
+    if (!path.extname(pathname) && fs.existsSync(path.join(BASE_DIR, pathname + '.html'))) {
+      pathname = pathname + '.html';
+    }
 
     const safeSuffix = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
     const filePath = path.join(BASE_DIR, safeSuffix);
 
     if (!filePath.startsWith(BASE_DIR) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('404 Nenalezeno');
+      const page404 = path.join(BASE_DIR, '404.html');
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      if (fs.existsSync(page404)) {
+        fs.createReadStream(page404).pipe(res);
+      } else {
+        res.end('404 Stránka nenalezena');
+      }
       return;
     }
 
@@ -351,6 +460,9 @@ const server = http.createServer(async (req, res) => {
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
     res.writeHead(200, {
       'Content-Type': contentType,
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Cache-Control': 'no-cache'
     });
     fs.createReadStream(filePath).pipe(res);
