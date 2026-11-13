@@ -14,16 +14,16 @@
   <header class="site-header">
     <div class="nav-container">
       <a href="index.html" class="brand">
-        <span class="brand-title">Pokorní z Příbora</span>
-        <span class="brand-subtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
+        <span class="brand-title" data-cms="global.brandTitle">Pokorní z Příbora</span>
+        <span class="brand-subtitle" data-cms="global.brandSubtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
       </a>
       <nav>
         <ul class="nav-links">
-          <li><a href="index.html">Úvod</a></li>
-          <li><a href="historie-lekarny.html" class="active">Historie lékárny</a></li>
-          <li><a href="vaclav-pokorny.html">PhMr. Václav Pokorný</a></li>
-          <li><a href="rodokmen.html" class="nav-highlight">Interaktivní rodokmen ↗</a></li>
-          <li><a href="#lekarna-galerie">Galerie k lékárně</a></li>
+          <li><a href="rodokmen.html" data-cms="global.navTree">Interaktivní rodokmen</a></li>
+          <li><a href="index.html" data-cms="global.navHome">Úvod</a></li>
+          <li><a href="historie-lekarny.html" class="active" data-cms="global.navPharmacy">Historie lékárny</a></li>
+          <li><a href="vaclav-pokorny.html" data-cms="global.navVaclav">PhMr. Václav Pokorný</a></li>
+          <li><a href="#lekarna-galerie" data-cms="global.navArchive">Archiv</a></li>
         </ul>
       </nav>
     </div>
@@ -31,44 +31,44 @@
 
   <section class="subpage-hero">
     <div class="subpage-hero-inner">
-      <span class="section-eyebrow">1756 – 20. století • Příbor č. p. 54</span>
-      <h1>Historie lékárny „U Panny Marie pomocné“</h1>
-      <p id="lekarna-hero-desc">
+      <span class="section-eyebrow" data-cms="lekarna.heroEyebrow">1756 – 20. století • Příbor č. p. 54</span>
+      <h1 data-cms="lekarna.heroTitle">Historie lékárny „U Panny Marie pomocné“</h1>
+      <p id="lekarna-hero-desc" data-cms-linkify="lekarna.heroDesc">
         Od založení první oficíny Václavem Pokorným v době působení piaristů, přes vlasteneckou a starostenskou éru Ferdinanda Pokorného a prvorepublikové spojení s plzeňským rodem Brožíků, až po znárodnění v roce 1950 a polistopadovou privatizaci.
       </p>
     </div>
   </section>
 
-  <!-- Main Section: Pharmacists Lineage + Interactive Timeline -->
+  <!-- Main Section: Interactive Timeline first, followed by Šest generací příborských lékárníků -->
   <section class="section">
     <div class="section-header">
-      <span class="section-eyebrow">Posloupnost šesti generací</span>
-      <h2 class="section-title">Šest generací příborských lékárníků</h2>
-      <p class="section-desc">
-        Každé jméno v posloupnosti i v textu níže je interaktivním odkazem, který vás přenese přímo na kartu dané osobnosti v rodokmenu.
-      </p>
-    </div>
-
-    <div id="pharmacists-chain" class="lineage-chain"></div>
-    <div id="brozik-box" class="brozik-callout"></div>
-
-    <div class="section-header" style="margin-top:3.5rem;">
-      <span class="section-eyebrow">Podrobná časová osa</span>
-      <h2 class="section-title">Milníky lékárny v průběhu staletí</h2>
-      <p class="section-desc">
-        Kliknutím na libovolné období nebo na tlačítko <strong>Více</strong> otevřete podrobné vyprávění a dobové fotografie v překryvném okně.
+      <span class="section-eyebrow" data-cms="lekarna.timelineEyebrow">Podrobná časová osa</span>
+      <h2 class="section-title" data-cms="lekarna.timelineTitle">Milníky lékárny v průběhu staletí</h2>
+      <p class="section-desc" data-cms="lekarna.timelineDesc">
+        Kliknutím na libovolné období nebo na tlačítko Více otevřete podrobné vyprávění a dobové fotografie v překryvném okně.
       </p>
     </div>
 
     <div id="pharmacy-timeline-full" class="timeline"></div>
+
+    <div class="section-header" style="margin-top:4rem;">
+      <span class="section-eyebrow" data-cms="lekarna.generationsEyebrow">Posloupnost šesti generací</span>
+      <h2 class="section-title" data-cms="lekarna.generationsTitle">Šest generací příborských lékárníků</h2>
+      <p class="section-desc" data-cms="lekarna.generationsDesc">
+        Každé jméno v posloupnosti i v textu je interaktivním odkazem, který vás přenese přímo na kartu dané osobnosti v rodokmenu.
+      </p>
+    </div>
+
+    <div id="pharmacists-chain" class="lineage-chain"></div>
+    <div id="brozik-box" class="brozik-callout" style="margin-bottom:0;"></div>
   </section>
 
   <!-- Bottom Gallery Section relevant to Historie lékárny -->
   <section id="lekarna-galerie" class="section" style="border-bottom:none;">
     <div class="section-header">
-      <span class="section-eyebrow">Archivní materiály k lékárně</span>
-      <h2 class="section-title">Dokumenty, kroniky a fotografie lékárny</h2>
-      <p class="section-desc">
+      <span class="section-eyebrow" data-cms="lekarna.archiveEyebrow">Archivní materiály k lékárně</span>
+      <h2 class="section-title" data-cms="lekarna.archiveTitle">Archiv</h2>
+      <p class="section-desc" data-cms="lekarna.archiveDesc">
         Vybrané archiválie, rukopisné kroniky a historické snímky vztahující se k dějinám lékárny „U Panny Marie pomocné“ a rodině Pokorných v Příboře.
       </p>
     </div>

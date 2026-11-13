@@ -1,4 +1,74 @@
 const SITE_DATA = {
+  // Editable Page Titles, Subtitles, Hero Texts & Section Descriptions across all pages
+  pageText: {
+    global: {
+      brandTitle: "Pokorní z Příbora",
+      brandSubtitle: "Lékárna U Panny Marie pomocné • Zal. 1756",
+      navTree: "Interaktivní rodokmen",
+      navHome: "Úvod",
+      navPharmacy: "Historie lékárny",
+      navVaclav: "PhMr. Václav Pokorný",
+      navArchive: "Archiv"
+    },
+    home: {
+      heroTitle: "Šest generací lékárníků Pokorných z Příbora",
+      heroSubtitle: "Příběh rodinné lékárny „U Panny Marie pomocné“ založené roku 1756, vlasteneckých počinů na Novojičínsku a životní dráhy PhMr. Václava Pokorného – lékárníka v šesté generaci a swingového skladatele.",
+      cardTreeTitle: "Interaktivní rodokmen",
+      cardTreeSub: "Rodokmen 1.–9. generace",
+      cardTreeImg: "",
+      cardPharmacyTitle: "Historie lékárny",
+      cardPharmacySub: "Lékárna v Příboře (1756)",
+      cardPharmacyImg: "",
+      cardVaclavTitle: "PhMr. Václav Pokorný",
+      cardVaclavSub: "Lékárník a skladatel",
+      cardVaclavImg: "",
+      cardArchiveTitle: "Archiv",
+      cardArchiveSub: "Kroniky, noty a fotografie",
+      cardArchiveImg: "",
+      lekarnaEyebrow: "1756 – 20. století",
+      lekarnaTitle: "Historie lékárny „U Panny Marie pomocné“",
+      lekarnaDesc: "Přehled hlavních milníků lékárny a šesti generací příborských lékárníků. Vyberte konkrétní období pro přechod na podrobnou historii.",
+      vaclavEyebrow: "6. generace • Lékárník a hudební skladatel",
+      vaclavTitle: "PhMr. Václav Pokorný (1918–2011)",
+      vaclavPortraitImg: "",
+      vaclavPortraitCaption: "PhMr. Václav Pokorný u klavíru / v příborské lékárně",
+      vaclavLeadSentence: "Příborský lékárník v šesté generaci, hudební skladatel a klavírista, jehož swingové písně vydávalo nakladatelství R. A. Dvorského a hrály orchestry Karla Vlacha, Karla Krautgartnera i divadlo Semafor.",
+      vaclavCtaLabel: "Více →",
+      audioTitle: "Hudební a rozhlasový archiv",
+      audioSubtitle: "Ukázka 3 vybraných nahrávek a rozhlasových vzpomínek PhMr. Václava Pokorného.",
+      archiveEyebrow: "Digitální badatelna a multimediální galerie",
+      archiveTitle: "Archiv",
+      archiveDesc: "Interaktivní koláž dobových kronik, diplomů, notových záznamů, zvukových nahrávek a fotografií. Kliknutím na libovolnou dlaždici otevřete detailní interaktivní náhled s popisem."
+    },
+    lekarna: {
+      heroEyebrow: "1756 – 20. století • Příbor č. p. 54",
+      heroTitle: "Historie lékárny „U Panny Marie pomocné“",
+      heroDesc: "Od založení první oficíny Václavem Pokorným v době působení piaristů, přes vlasteneckou a starostenskou éru Ferdinanda Pokorného a prvorepublikové spojení s plzeňským rodem Brožíků, až po znárodnění v roce 1950 a polistopadovou privatizaci.",
+      timelineEyebrow: "Podrobná časová osa",
+      timelineTitle: "Milníky lékárny v průběhu staletí",
+      timelineDesc: "Kliknutím na libovolné období nebo na tlačítko Více otevřete podrobné vyprávění a dobové fotografie v překryvném okně.",
+      generationsEyebrow: "Posloupnost šesti generací",
+      generationsTitle: "Šest generací příborských lékárníků",
+      generationsDesc: "Každé jméno v posloupnosti i v textu je interaktivním odkazem, který vás přenese přímo na kartu dané osobnosti v rodokmenu.",
+      archiveEyebrow: "Archivní materiály k lékárně",
+      archiveTitle: "Archiv",
+      archiveDesc: "Vybrané archiválie, rukopisné kroniky a historické snímky vztahující se k dějinám lékárny „U Panny Marie pomocné“ a rodině Pokorných v Příboře."
+    },
+    vaclav: {
+      introEyebrow: "6. generace lékárníků • Hudební skladatel, klavírista a aranžér",
+      introTitle: "PhMr. Václav Pokorný (26. 7. 1918 – 11. 7. 2011)",
+      introLeadParagraph: "PhMr. Václav Pokorný spojil ve svém životě dvě zdánlivě odlišné disciplíny – precizní lékárenské řemeslo zděděné po pěti generacích předků v Příboře (od zakladatele Václava Pokorného přes Kajetána Pokorného, Ludvíka Pokorného, starostu Ferdinanda Pokorného až po otce Dr. Vladimíra Pokorného a matku Boženu Brožíkovou) a nespoutanou radost ze swingové hudby, kompozice a aranžování.",
+      introSecondParagraph: "Od gymnaziálních let v Příboře, kde sedával v lavici se svým celoživotním přítelem a skladatelem Zdeňkem Petrem, směřoval k jazzu a moderní populární písni. Během farmaceutických studií v Praze za druhé světové války se stal kmenovým autorem věhlasného nakladatelství R. A. Dvorského. Po poválečném návratu do Příbora a komunistickém znárodnění rodinné lékárny v roce 1950 působil v Opavě a následně v Praze, kde spolupracoval s orchestry Karla Vlacha, Karla Krautgartnera, vokálním souborem Eva Kvartet i divadlem Semafor (autorské album Několik přání s Václavem Markem). Spolu s manželkou vychoval děti Annu, Petra Pokorného a Kateřinu. Jeho písně dnes znovu ožívají v podání zpěvačky Dáji Šimíčkové a kapely Shadde Yadda.",
+      treeBtnLabel: "Zobrazit PhMr. Václava Pokorného v rodokmenu ↗",
+      timelineEyebrow: "Životní a umělecká dráha",
+      timelineTitle: "Časová osa života PhMr. Václava Pokorného",
+      timelineDesc: "Kliknutím na libovolnou kapitolu, na tlačítko Více nebo na fotografie vlevo otevřete detailní náhled v překryvném okně. Všechna jména rodinných příslušníků jsou proklikávací do rodokmenu.",
+      archiveEyebrow: "Osobní a hudební archiv",
+      archiveTitle: "Archiv",
+      archiveDesc: "Interaktivní koláž partitur z nakladatelství R. A. Dvorského, rozhlasových nahrávek, dokumentů a fotografií ze života PhMr. Václava Pokorného."
+    }
+  },
+
   // Person Lookup Dictionary for auto-linking names in descriptions to rodokmen.html?person=<id>
   personLinks: [
     { id: "vaclav-6", patterns: ["PhMr. Václav Pokorný", "PhMr. Václava Pokorného", "PhMr. Václavu Pokornému", "Václav Pokorný (6. generace)", "Václavem Pokorným (6. generace)"] },
@@ -933,6 +1003,97 @@ Jeho melodie a texty však neupadly v zapomnění. Mladá generace jazzových a 
       transcription: "Archivní nahrávka pořadu Světla ramp (Klasik FM).",
       audioSrc: "uschovna/01 Svretla Ramp_KlasikFM_Pokorny_Marek.wma",
       duration: "28:10"
+    }
+  ],
+
+  // Clickable & expandable photos placed along the Václav Pokorný subpage (top right + left of timeline)
+  // mode: 'split' (photo carousel left + text panel right, like archive) | 'carousel' (full-width photo carousel + small caption only)
+  vaclavInteractivePhotos: [
+    {
+      id: "vp-photo-hero-1",
+      placement: "top-right",
+      mode: "split",
+      title: "PhMr. Václav Pokorný u klavíru (40. léta)",
+      date: "1942–1945",
+      author: "Rodinný archiv Praha / Příbor",
+      caption: "Za klavírem v éře spolupráce s nakladatelstvím R. A. Dvorského",
+      description: "Snímek zachycuje PhMr. Václava Pokorného v době pražských vysokoškolských studií farmacie a jeho souběžné skladatelské dráhy u nakladatelství R. A. Dvorského, kde vycházely jeho swingové písně tiskem.",
+      photos: [
+        { url: null, caption: "PhMr. Václav Pokorný u klavíru při práci na nové swingové skladbě (40. léta)" },
+        { url: null, caption: "Detail rukopisné skici a notového tisku R. A. Dvorského" }
+      ]
+    },
+    {
+      id: "vp-photo-hero-2",
+      placement: "top-right",
+      mode: "carousel",
+      title: "V lékárně U Panny Marie pomocné v Příboře",
+      date: "1946",
+      author: "Rodinný archiv Příbor",
+      caption: "Šestá generace lékárníků po návratu do rodného Příbora",
+      description: "Fotografie z poválečného působení PhMr. Václava Pokorného v rodinné lékárně na příborském náměstí.",
+      photos: [
+        { url: null, caption: "PhMr. Václav Pokorný v historické oficíně lékárny v Příboře (1946)" },
+        { url: null, caption: "Společný snímek s otcem Dr. Vladimírem Pokorným před lékárnou" },
+        { url: null, caption: "Historické stojatky a recepturní pult příborské lékárny" }
+      ]
+    },
+    {
+      id: "vp-photo-side-1",
+      placement: "timeline-left",
+      mode: "carousel",
+      title: "Gymnaziální léta se Zdeňkem Petrem v Příboře",
+      date: "30. léta 20. století",
+      author: "Archiv Příbor",
+      caption: "Studentská kapela a počátky přátelství se Zdeňkem Petrem",
+      description: "Snímky ze studentských let na reálném gymnáziu v Příboře.",
+      photos: [
+        { url: null, caption: "Václav Pokorný a Zdeněk Petr jako studenti příborského gymnázia" },
+        { url: null, caption: "První studentské jazzové a swingové zkoušky v Příboře" }
+      ]
+    },
+    {
+      id: "vp-photo-side-2",
+      placement: "timeline-left",
+      mode: "split",
+      title: "Muzikál Divotvorný hrnec v Příboře",
+      date: "1947",
+      author: "Kulturní spolek Příbor",
+      caption: "Hudební nastudování poválečného muzikálu v Příboře (s textovým panelem)",
+      description: "Po návratu z Prahy do Příbora inicioval PhMr. Václav Pokorný uvedení proslulého muzikálu Divotvorný hrnec. Ujal se hudebního nastudování, aranžmá i klavírního vedení souboru.",
+      photos: [
+        { url: null, caption: "Scéna z příborského uvedení muzikálu Divotvorný hrnec (1947)" },
+        { url: null, caption: "PhMr. Václav Pokorný s divadelním a hudebním ansámblem" }
+      ]
+    },
+    {
+      id: "vp-photo-side-3",
+      placement: "timeline-left",
+      mode: "split",
+      title: "Spolupráce s orchestry Karla Vlacha a Karla Krautgartnera",
+      date: "60. léta 20. století",
+      author: "Archiv ČRo / Praha",
+      caption: "Aranžérská a skladatelská tvorba pro velké orchestry (s textovým panelem)",
+      description: "V šedesátých letech psal a aranžoval PhMr. Václav Pokorný skladby pro přední československé swingové orchestry vedené Karlem Vlachem a Karlem Krautgartnerem i pro vokální soubor Eva Kvartet.",
+      photos: [
+        { url: null, caption: "Natáčení ve studiu Československého rozhlasu v Praze (60. léta)" },
+        { url: null, caption: "Zkouška s vokálním souborem Eva Kvartet (Vlaďka Hořovská)" }
+      ]
+    },
+    {
+      id: "vp-photo-side-4",
+      placement: "timeline-left",
+      mode: "carousel",
+      title: "Album Několik přání (Semafor) & nové nahrávky Shadde Yadda",
+      date: "90. léta – současnost",
+      author: "Archiv Praha",
+      caption: "Autorské album s Václavem Markem a reinkarnace písní v podání Dáji Šimíčkové",
+      description: "Fotogalerie z natáčení alba Několik přání a ze současných koncertů.",
+      photos: [
+        { url: null, caption: "PhMr. Václav Pokorný a Václav Marek při přípravě alba Několik přání (Semafor)" },
+        { url: null, caption: "Rozhovor v Českém rozhlase (pořady Tandem a Světla ramp)" },
+        { url: null, caption: "Zpěvačka Dája Šimíčková a orchestr Shadde Yadda s repertoárem Václava Pokorného" }
+      ]
     }
   ]
 };

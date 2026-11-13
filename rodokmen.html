@@ -15,16 +15,16 @@
   <header class="site-header" data-ui-panel="true">
     <div class="nav-container">
       <a href="index.html" class="brand">
-        <span class="brand-title">Pokorní z Příbora</span>
-        <span class="brand-subtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
+        <span class="brand-title" data-cms="global.brandTitle">Pokorní z Příbora</span>
+        <span class="brand-subtitle" data-cms="global.brandSubtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
       </a>
       <nav>
         <ul class="nav-links">
-          <li><a href="index.html">Úvod</a></li>
-          <li><a href="historie-lekarny.html">Historie lékárny</a></li>
-          <li><a href="vaclav-pokorny.html">PhMr. Václav Pokorný</a></li>
-          <li><a href="rodokmen.html" class="nav-highlight active">Interaktivní rodokmen</a></li>
-          <li><a href="index.html#archiv">Archiv a kroniky</a></li>
+          <li><a href="rodokmen.html" class="active" data-cms="global.navTree">Interaktivní rodokmen</a></li>
+          <li><a href="index.html" data-cms="global.navHome">Úvod</a></li>
+          <li><a href="historie-lekarny.html" data-cms="global.navPharmacy">Historie lékárny</a></li>
+          <li><a href="vaclav-pokorny.html" data-cms="global.navVaclav">PhMr. Václav Pokorný</a></li>
+          <li><a href="index.html#archiv" data-cms="global.navArchive">Archiv</a></li>
         </ul>
       </nav>
     </div>
@@ -35,20 +35,6 @@
   <div id="edge-bottom" class="edge-zone edge-bottom" aria-hidden="true"></div>
   <div id="edge-left" class="edge-zone edge-left" aria-hidden="true"></div>
   <div id="edge-right" class="edge-zone edge-right" aria-hidden="true"></div>
-
-  <!-- Floating Legend & Instructions Bar under Site Header -->
-  <div class="canvas-hud-top" data-ui-panel="true">
-    <div class="hud-title-group">
-      <h1 class="hud-title">Rodokmen Pokorných z Příbora (1.–9. generace)</h1>
-      <span class="hud-subtitle">Kliknutím na libovolnou osobu otevřete detailní kartu s fotogalerií • Tažením myši nebo u okrajů posouváte plátno</span>
-    </div>
-    <div class="hud-divider"></div>
-    <div class="hud-legend">
-      <span class="legend-item"><span class="legend-dot dot-pharmacist"></span> Lékárníci (1.–6. gen.)</span>
-      <span class="legend-item"><span class="legend-dot dot-brozik"></span> Rod Brožíků</span>
-      <span class="legend-item"><span class="legend-dot dot-family"></span> Potomci (6.–9. gen.)</span>
-    </div>
-  </div>
 
   <!-- Bottom-Right Corner Zoom & Tree Controls -->
   <aside class="canvas-hud-corner" data-ui-panel="true">

@@ -1,6 +1,18 @@
 document.addEventListener('DOMContentLoaded', () => {
+  applyTreeGlobalCmsText();
   initGenealogyTreePage();
 });
+
+function applyTreeGlobalCmsText() {
+  if (!SITE_DATA.pageText) return;
+  document.querySelectorAll('[data-cms]').forEach(el => {
+    const keyPath = el.getAttribute('data-cms');
+    const val = keyPath.split('.').reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : undefined), SITE_DATA.pageText);
+    if (typeof val === 'string' && val.trim() !== '') {
+      el.textContent = val;
+    }
+  });
+}
 
 // Flat map of all people by id for quick lookup when opening overlay modal
 const PERSON_MAP = new Map();
@@ -126,11 +138,17 @@ function openPersonOverlayModal(member) {
   // Build links to children or spouse if present
   const relationsHtml = buildPersonRelationsHtml(member);
 
+  // Clean role string so generation isn't duplicated (e.g. "5. generace • Lékárník a vlastivědec")
+  const cleanProfession = (member.role || '').replace(/^\d+\.\s*gen\.\s*•\s*/i, '').trim();
+  const roleHeader = cleanProfession
+    ? `${member.gen}. generace • ${cleanProfession}`
+    : `${member.gen}. generace`;
+
   // Right: Title, Role, Dates, Description, Related Links
   rightPane.className = 'modal-right-pane modal-pane-details';
   rightPane.innerHTML = `
     <div class="modal-details-content">
-      <div class="archive-meta">${member.gen}. generace rodu • ${member.role}</div>
+      <div class="archive-meta">${roleHeader}</div>
       <h2 class="modal-main-title">${member.name}</h2>
 
       <div class="tree-dates-grid" style="margin: 1rem 0;">
@@ -144,7 +162,7 @@ function openPersonOverlayModal(member) {
         </div>
       </div>
 
-      <div class="tree-bio-box" style="margin-bottom: 1rem;">
+      <div class="tree-bio-box tree-bio-expanded">
         <span class="tree-bio-label">Životopis a působení</span>
         <p>${member.description}</p>
       </div>
@@ -335,10 +353,10 @@ function setupCanvasPanAndZoom() {
     const treeHeight = treeEl.offsetHeight;
 
     panX = (vw - treeWidth * scale) / 2;
-    if (treeHeight * scale < vh - 160) {
-      panY = (vh - treeHeight * scale) / 2 + 40;
+    if (treeHeight * scale < vh - 100) {
+      panY = (vh - treeHeight * scale) / 2 + 12;
     } else {
-      panY = 140;
+      panY = 48;
     }
     applyTransform();
   }
@@ -430,8 +448,8 @@ function setupCanvasPanAndZoom() {
       edgeRight?.classList.remove('active');
     }
 
-    if (y > 80 && y < 80 + EDGE_THRESHOLD) {
-      const intensity = 1 - (y - 80) / EDGE_THRESHOLD;
+    if (y > 46 && y < 46 + EDGE_THRESHOLD) {
+      const intensity = 1 - (y - 46) / EDGE_THRESHOLD;
       edgeVelY = MAX_PAN_SPEED * intensity;
       edgeTop?.classList.add('active');
       edgeBottom?.classList.remove('active');

@@ -9,21 +9,21 @@
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body data-page="main">
+<body class="main-page-body" data-page="main">
 
   <header class="site-header">
     <div class="nav-container">
       <a href="index.html" class="brand">
-        <span class="brand-title">Pokorní z Příbora</span>
-        <span class="brand-subtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
+        <span class="brand-title" data-cms="global.brandTitle">Pokorní z Příbora</span>
+        <span class="brand-subtitle" data-cms="global.brandSubtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
       </a>
       <nav>
         <ul class="nav-links">
-          <li><a href="index.html" class="active">Úvod</a></li>
-          <li><a href="historie-lekarny.html">Historie lékárny</a></li>
-          <li><a href="vaclav-pokorny.html">PhMr. Václav Pokorný</a></li>
-          <li><a href="rodokmen.html" class="nav-highlight">Interaktivní rodokmen ↗</a></li>
-          <li><a href="#archiv">Archiv a kroniky</a></li>
+          <li><a href="rodokmen.html" data-cms="global.navTree">Interaktivní rodokmen</a></li>
+          <li><a href="index.html" class="active" data-cms="global.navHome">Úvod</a></li>
+          <li><a href="historie-lekarny.html" data-cms="global.navPharmacy">Historie lékárny</a></li>
+          <li><a href="vaclav-pokorny.html" data-cms="global.navVaclav">PhMr. Václav Pokorný</a></li>
+          <li><a href="#archiv" data-cms="global.navArchive">Archiv</a></li>
         </ul>
       </nav>
     </div>
@@ -31,19 +31,50 @@
 
   <section class="hero">
     <div class="hero-inner">
-      <h1>Šest generací lékárníků Pokorných z Příbora</h1>
-      <p>
+      <h1 data-cms="home.heroTitle">Šest generací lékárníků Pokorných z Příbora</h1>
+      <p data-cms="home.heroSubtitle">
         Příběh rodinné lékárny „U Panny Marie pomocné“ založené roku 1756, vlasteneckých počinů na Novojičínsku a životní dráhy PhMr. Václava Pokorného – lékárníka v šesté generaci a swingového skladatele.
       </p>
-      <div class="hero-actions">
-        <div class="hero-actions-primary">
-          <a href="rodokmen.html" class="btn btn-primary">Interaktivní rodokmen</a>
-        </div>
-        <div class="hero-actions-secondary">
-          <a href="historie-lekarny.html" class="btn btn-outline">Historie lékárny od r. 1756</a>
-          <a href="vaclav-pokorny.html" class="btn btn-outline">Život a hudba Václava Pokorného</a>
-          <a href="#archiv" class="btn btn-outline">Archiv a kroniky</a>
-        </div>
+      <div class="hero-card-row">
+        <a href="rodokmen.html" class="hero-img-btn card-bg-tree" data-cms-bg="home.cardTreeImg">
+          <div class="hero-img-placeholder">
+            <span class="hero-img-badge">[ Náhled obrázku ]</span>
+            <small data-cms="home.cardTreeSub">Rodokmen 1.–9. generace</small>
+          </div>
+          <div class="hero-img-fade">
+            <span class="hero-img-title" data-cms="home.cardTreeTitle">Interaktivní rodokmen</span>
+          </div>
+        </a>
+
+        <a href="historie-lekarny.html" class="hero-img-btn card-bg-pharmacy" data-cms-bg="home.cardPharmacyImg">
+          <div class="hero-img-placeholder">
+            <span class="hero-img-badge">[ Náhled obrázku ]</span>
+            <small data-cms="home.cardPharmacySub">Lékárna v Příboře (1756)</small>
+          </div>
+          <div class="hero-img-fade">
+            <span class="hero-img-title" data-cms="home.cardPharmacyTitle">Historie lékárny</span>
+          </div>
+        </a>
+
+        <a href="vaclav-pokorny.html" class="hero-img-btn card-bg-vaclav" data-cms-bg="home.cardVaclavImg">
+          <div class="hero-img-placeholder">
+            <span class="hero-img-badge">[ Náhled obrázku ]</span>
+            <small data-cms="home.cardVaclavSub">Lékárník a skladatel</small>
+          </div>
+          <div class="hero-img-fade">
+            <span class="hero-img-title" data-cms="home.cardVaclavTitle">PhMr. Václav Pokorný</span>
+          </div>
+        </a>
+
+        <a href="#archiv" class="hero-img-btn card-bg-archive" data-cms-bg="home.cardArchiveImg">
+          <div class="hero-img-placeholder">
+            <span class="hero-img-badge">[ Náhled obrázku ]</span>
+            <small data-cms="home.cardArchiveSub">Kroniky, noty a fotografie</small>
+          </div>
+          <div class="hero-img-fade">
+            <span class="hero-img-title" data-cms="home.cardArchiveTitle">Archiv</span>
+          </div>
+        </a>
       </div>
     </div>
   </section>
@@ -51,94 +82,99 @@
   <!-- Section 1: Compact Pharmacy History Timeline -->
   <section id="lekarna" class="section">
     <div class="section-header">
-      <span class="section-eyebrow">1756 – 20. století</span>
-      <h2 class="section-title">Historie lékárny „U Panny Marie pomocné“</h2>
-      <p class="section-desc">
+      <span class="section-eyebrow" data-cms="home.lekarnaEyebrow">1756 – 20. století</span>
+      <h2 class="section-title" data-cms="home.lekarnaTitle">Historie lékárny „U Panny Marie pomocné“</h2>
+      <p class="section-desc" data-cms="home.lekarnaDesc">
         Přehled hlavních milníků lékárny a šesti generací příborských lékárníků. Vyberte konkrétní období pro přechod na podrobnou historii.
       </p>
     </div>
     <div id="pharmacy-timeline-compact" class="timeline timeline-compact"></div>
   </section>
 
-  <!-- Section 2: PhMr. Václav Pokorný Showcase (Left Photo, Center Short Sentence + Button, Right 3-Song Audio Archive with Bottom Bar) -->
-  <section id="vaclav-pokorny" class="section">
-    <div class="section-header">
-      <span class="section-eyebrow">6. generace • Lékárník a hudební skladatel</span>
-      <h2 class="section-title">PhMr. Václav Pokorný (1918–2011)</h2>
-    </div>
+  <!-- Dark Stage Wrapper: Gradient into Black through Václav Pokorný & continuing to the end of the page -->
+  <div class="dark-stage-wrapper">
 
-    <div class="vaclav-showcase-grid">
-      <!-- Left: Large Photo -->
-      <div class="vaclav-photo-col">
-        <div class="vaclav-large-portrait">
-          <div class="portrait-placeholder-icon">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-          </div>
-          <div class="portrait-placeholder-title">[ Portrétní fotografie ]</div>
-          <div class="portrait-placeholder-sub">PhMr. Václav Pokorný u klavíru / v příborské lékárně</div>
-        </div>
+    <!-- Section 2: PhMr. Václav Pokorný Showcase (Seamless Dark Gradient, Fading Edge Portrait, Floating White Text + Více Button, Bordered Audio Archive) -->
+    <section id="vaclav-pokorny" class="section section-dark-seamless">
+      <div class="section-header">
+        <span class="section-eyebrow" data-cms="home.vaclavEyebrow">6. generace • Lékárník a hudební skladatel</span>
+        <h2 class="section-title" data-cms="home.vaclavTitle">PhMr. Václav Pokorný (1918–2011)</h2>
       </div>
 
-      <!-- Middle: Short sentence-long description + Button to Subpage -->
-      <div class="vaclav-desc-col">
-        <p class="vaclav-lead-sentence" id="vaclav-main-sentence">
-          Příborský lékárník v šesté generaci, hudební skladatel a klavírista, jehož swingové písně vydávalo nakladatelství R. A. Dvorského a hrály orchestry Karla Vlacha, Karla Krautgartnera i divadlo Semafor.
-        </p>
-        <div class="vaclav-cta-wrap">
-          <a href="vaclav-pokorny.html" class="btn btn-primary">Přejít na podrobný životopis Václava Pokorného →</a>
-        </div>
-      </div>
-
-      <!-- Right: Hudební a rozhlasový archiv snippet with 3 songs + integrated audio playhead & bar at bottom -->
-      <aside class="audio-card-panel">
-        <div class="audio-panel-header">
-          <h3>Hudební a rozhlasový archiv</h3>
-          <p class="audio-panel-sub">
-            Ukázka 3 vybraných nahrávek a rozhlasových vzpomínek PhMr. Václava Pokorného.
-          </p>
-        </div>
-
-        <div id="track-list" class="track-list"></div>
-
-        <!-- Integrated Audio Playhead & Bar at the bottom of Hudební a rozhlasový archiv -->
-        <div class="audio-panel-player">
-          <div class="audio-panel-now-playing">
-            <button id="bar-play-btn" class="play-btn" type="button" title="Přehrát / Pozastavit">▶</button>
-            <div class="audio-panel-track-meta">
-              <div id="bar-track-title" class="audio-panel-track-title">Vyberte skladbu</div>
-              <div id="bar-track-sub" class="audio-panel-track-sub">Archiv PhMr. Václava Pokorného</div>
+      <div class="vaclav-showcase-grid">
+        <!-- Left: Large Photo blending seamlessly with edges fading into the black background -->
+        <div class="vaclav-photo-col">
+          <div class="vaclav-fading-portrait" id="vaclav-home-portrait">
+            <div class="portrait-placeholder-icon">
+              <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
             </div>
+            <div class="portrait-placeholder-title">[ Portrétní fotografie ]</div>
+            <div class="portrait-placeholder-sub" data-cms="home.vaclavPortraitCaption">PhMr. Václav Pokorný u klavíru / v příborské lékárně</div>
           </div>
-          <audio id="main-audio" controls class="audio-panel-element"></audio>
         </div>
-      </aside>
-    </div>
-  </section>
 
-  <!-- Section 3: Media Gallery (Kroniky, dokumenty, noty, hudba, fotografie) -->
-  <section id="archiv" class="section" style="border-bottom:none;">
-    <div class="section-header">
-      <span class="section-eyebrow">Digitální badatelna a multimediální galerie</span>
-      <h2 class="section-title">Kroniky, dokumenty, nahrávky a fotografie</h2>
-      <p class="section-desc">
-        Interaktivní koláž dobových kronik, diplomů, notových záznamů, zvukových nahrávek a fotografií. Kliknutím na libovolnou dlaždici otevřete detailní interaktivní náhled.
-      </p>
-    </div>
+        <!-- Middle: Borderless floating white text + "Více" button -->
+        <div class="vaclav-desc-col">
+          <p class="vaclav-lead-sentence" id="vaclav-main-sentence" data-cms-linkify="home.vaclavLeadSentence">
+            Příborský lékárník v šesté generaci, hudební skladatel a klavírista, jehož swingové písně vydávalo nakladatelství R. A. Dvorského a hrály orchestry Karla Vlacha, Karla Krautgartnera i divadlo Semafor.
+          </p>
+          <div class="vaclav-cta-wrap">
+            <a href="vaclav-pokorny.html" class="btn btn-primary" data-cms="home.vaclavCtaLabel">Více →</a>
+          </div>
+        </div>
 
-    <div class="filter-bar">
-      <button class="filter-btn active" data-filter="all">Všechny materiály</button>
-      <button class="filter-btn" data-filter="kroniky">Kroniky</button>
-      <button class="filter-btn" data-filter="dokumenty">Diplomy a dokumenty</button>
-      <button class="filter-btn" data-filter="noty">Notové záznamy</button>
-      <button class="filter-btn" data-filter="hudba">Hudba a rozhlas</button>
-      <button class="filter-btn" data-filter="fotografie">Fotografie</button>
-    </div>
+        <!-- Right: Bordered Hudební a rozhlasový archiv snippet with 3 songs + integrated audio playhead & bar at bottom -->
+        <aside class="audio-card-panel">
+          <div class="audio-panel-header">
+            <h3 data-cms="home.audioTitle">Hudební a rozhlasový archiv</h3>
+            <p class="audio-panel-sub" data-cms="home.audioSubtitle">
+              Ukázka 3 vybraných nahrávek a rozhlasových vzpomínek PhMr. Václava Pokorného.
+            </p>
+          </div>
 
-    <div id="archive-grid" class="collage-gallery" data-gallery-page="main"></div>
-  </section>
+          <div id="track-list" class="track-list"></div>
+
+          <!-- Integrated Audio Playhead & Bar at the bottom of Hudební a rozhlasový archiv -->
+          <div class="audio-panel-player">
+            <div class="audio-panel-now-playing">
+              <button id="bar-play-btn" class="play-btn" type="button" title="Přehrát / Pozastavit">▶</button>
+              <div class="audio-panel-track-meta">
+                <div id="bar-track-title" class="audio-panel-track-title">Vyberte skladbu</div>
+                <div id="bar-track-sub" class="audio-panel-track-sub">Archiv PhMr. Václava Pokorného</div>
+              </div>
+            </div>
+            <audio id="main-audio" controls class="audio-panel-element"></audio>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Section 3: Media Gallery continuing on the Black Background till the end of the page -->
+    <section id="archiv" class="section section-dark-archive">
+      <div class="section-header">
+        <span class="section-eyebrow" data-cms="home.archiveEyebrow">Digitální badatelna a multimediální galerie</span>
+        <h2 class="section-title" data-cms="home.archiveTitle">Archiv</h2>
+        <p class="section-desc" data-cms="home.archiveDesc">
+          Interaktivní koláž dobových kronik, diplomů, notových záznamů, zvukových nahrávek a fotografií. Kliknutím na libovolnou dlaždici otevřete detailní interaktivní náhled s popisem.
+        </p>
+      </div>
+
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all">Všechny materiály</button>
+        <button class="filter-btn" data-filter="kroniky">Kroniky</button>
+        <button class="filter-btn" data-filter="dokumenty">Diplomy a dokumenty</button>
+        <button class="filter-btn" data-filter="noty">Notové záznamy</button>
+        <button class="filter-btn" data-filter="hudba">Hudba a rozhlas</button>
+        <button class="filter-btn" data-filter="fotografie">Fotografie</button>
+      </div>
+
+      <div id="archive-grid" class="collage-gallery" data-gallery-page="main"></div>
+    </section>
+
+  </div>
 
   <!-- Universal Interactive Overlay Modal -->
   <div id="universal-modal" class="modal-backdrop" aria-hidden="true">

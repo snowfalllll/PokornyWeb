@@ -30,6 +30,11 @@ body {
   padding-bottom: 60px;
 }
 
+/* Main page continues with a black background until the very bottom */
+body.main-page-body {
+  padding-bottom: 0;
+}
+
 h1, h2, h3, h4 {
   font-family: var(--font-serif);
   font-weight: 600;
@@ -37,7 +42,7 @@ h1, h2, h3, h4 {
 }
 
 /* ==========================================================================
-   Header & Top Bar (Always Visible across All Pages)
+   Compact Header & Top Bar (Always Visible across All Pages)
    ========================================================================== */
 .site-header {
   position: sticky;
@@ -46,43 +51,45 @@ h1, h2, h3, h4 {
   background: rgba(250, 247, 242, 0.96);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border-subtle);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 
 .nav-container {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 0.9rem 1.5rem;
+  padding: 0.65rem 1.4rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .brand {
   text-decoration: none;
   color: var(--text-primary);
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 0.7rem;
 }
 
 .brand-title {
   font-family: var(--font-serif);
-  font-size: 1.5rem;
+  font-size: 1.32rem;
   font-weight: 700;
   letter-spacing: 0.02em;
+  line-height: 1;
 }
 
 .brand-subtitle {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--accent-gold);
 }
 
 .nav-links {
   display: flex;
-  gap: 1.5rem;
+  gap: 1.45rem;
   list-style: none;
   align-items: center;
   flex-wrap: wrap;
@@ -91,7 +98,7 @@ h1, h2, h3, h4 {
 .nav-links a {
   text-decoration: none;
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 500;
   transition: color 0.2s, border-color 0.2s;
   padding-bottom: 2px;
@@ -104,75 +111,141 @@ h1, h2, h3, h4 {
   border-bottom-color: var(--accent-gold);
 }
 
-.nav-links a.nav-highlight {
-  color: var(--accent-green);
-  font-weight: 600;
-  background: #efe8da;
-  padding: 0.35rem 0.75rem;
-  border-radius: 4px;
-  border: 1px solid #d8ccb8;
-}
-
-.nav-links a.nav-highlight:hover,
-.nav-links a.nav-highlight.active {
-  background: var(--accent-gold);
-  color: #ffffff;
-  border-color: var(--accent-gold);
-}
-
 /* ==========================================================================
-   Hero & Subpage Hero Sections
+   Hero & Subpage Hero Sections + 4-Button Image Placeholder Row
    ========================================================================== */
 .hero {
   background: linear-gradient(180deg, #1e242b 0%, #2a333d 100%);
   color: #faf7f2;
-  padding: 5rem 1.5rem;
+  padding: 4rem 1.5rem 4.25rem;
   text-align: center;
   border-bottom: 4px solid var(--accent-gold);
 }
 
 .hero-inner {
-  max-width: 840px;
+  max-width: 1080px;
   margin: 0 auto;
 }
 
 .hero h1 {
-  font-size: clamp(2.4rem, 5vw, 3.8rem);
-  margin-bottom: 1.25rem;
+  font-size: clamp(2.3rem, 4.8vw, 3.6rem);
+  margin-bottom: 1.1rem;
   color: #ffffff;
 }
 
 .hero p {
-  font-size: 1.1rem;
+  font-size: 1.08rem;
   color: #cbd2d9;
-  max-width: 680px;
-  margin: 0 auto 2rem;
+  max-width: 700px;
+  margin: 0 auto 2.25rem;
 }
 
-.hero-actions {
+/* Single row of rectangular image-placeholder buttons with bottom opacity fade */
+.hero-card-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.1rem;
+  max-width: 1020px;
+  margin: 0 auto;
+}
+
+.hero-img-btn {
+  position: relative;
+  height: 158px;
+  border-radius: 6px;
+  overflow: hidden;
+  text-decoration: none;
+  border: 1px solid rgba(230, 220, 200, 0.32);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.hero-img-btn:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-gold);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42);
+}
+
+/* Placeholder image backgrounds with fading opacity toward the bottom */
+.hero-img-placeholder {
+  position: absolute;
+  inset: 0;
+  padding: 1rem 0.75rem 2.75rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.1rem;
   justify-content: center;
+  text-align: center;
+  /* Image placeholder fades in opacity towards the bottom */
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.75) 48%, rgba(0, 0, 0, 0.05) 100%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.75) 48%, rgba(0, 0, 0, 0.05) 100%);
+  transition: transform 0.3s ease;
 }
 
-.hero-actions-primary {
-  display: flex;
-  justify-content: center;
+.hero-img-btn:hover .hero-img-placeholder {
+  transform: scale(1.04);
 }
 
-.hero-actions-secondary {
-  display: flex;
-  gap: 0.85rem;
-  justify-content: center;
-  flex-wrap: wrap;
+.card-bg-tree .hero-img-placeholder {
+  background: linear-gradient(145deg, #3c5a4b 0%, #23382e 100%);
+}
+
+.card-bg-pharmacy .hero-img-placeholder {
+  background: linear-gradient(145deg, #6e5534 0%, #3d2e1b 100%);
+}
+
+.card-bg-vaclav .hero-img-placeholder {
+  background: linear-gradient(145deg, #374659 0%, #1d2633 100%);
+}
+
+.card-bg-archive .hero-img-placeholder {
+  background: linear-gradient(145deg, #54493b 0%, #2c261f 100%);
+}
+
+.hero-img-badge {
+  font-family: var(--font-serif);
+  font-size: 0.92rem;
+  color: #f4ece0;
+  letter-spacing: 0.03em;
+}
+
+.hero-img-placeholder small {
+  font-size: 0.72rem;
+  color: #d0d7de;
+  margin-top: 0.2rem;
+}
+
+/* Transparent bottom part holding the button title */
+.hero-img-fade {
+  position: relative;
+  z-index: 2;
+  margin-top: auto;
+  width: 100%;
+  padding: 1.5rem 0.85rem 0.85rem;
+  background: linear-gradient(180deg, transparent 0%, rgba(12, 15, 19, 0.82) 65%, rgba(10, 12, 16, 0.95) 100%);
+  text-align: center;
+}
+
+.hero-img-title {
+  font-family: var(--font-serif);
+  font-size: 1.22rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  display: block;
+}
+
+.hero-img-btn:hover .hero-img-title {
+  color: var(--accent-gold-light);
 }
 
 .subpage-hero {
   background: linear-gradient(180deg, #1e242b 0%, #27303a 100%);
   color: #faf7f2;
-  padding: 3.75rem 1.5rem;
+  padding: 3.5rem 1.5rem;
   border-bottom: 3px solid var(--accent-gold);
 }
 
@@ -416,83 +489,135 @@ h1, h2, h3, h4 {
 }
 
 /* ==========================================================================
-   Main Page: PhMr. Václav Pokorný 3-Column Showcase
-   (Left: Large Photo, Middle: Short Sentence + Button, Right: 3-Song Audio Archive + Bottom Bar)
+   Main Page Dark Stage: Gradient into Black for Václav Pokorný & Continuing Through Archive
    ========================================================================== */
+#lekarna {
+  border-bottom: none;
+}
+
+.dark-stage-wrapper {
+  background: linear-gradient(
+    180deg,
+    var(--bg-parchment) 0%,
+    #25211c 130px,
+    #0c0e11 260px,
+    #07080a 100%
+  );
+  color: #f4f1ea;
+  padding-top: 3rem;
+  padding-bottom: 5.5rem;
+}
+
+.section-dark-seamless {
+  border-bottom: none;
+  padding-top: 2.5rem;
+  padding-bottom: 3.5rem;
+}
+
+.section-dark-archive {
+  border-bottom: none;
+  padding-top: 2rem;
+}
+
+.dark-stage-wrapper .section-eyebrow {
+  color: #d4b072;
+}
+
+.dark-stage-wrapper .section-title {
+  color: #ffffff;
+}
+
+.dark-stage-wrapper .section-desc {
+  color: #b7c0c9;
+}
+
+.dark-stage-wrapper .person-inline-link {
+  color: #e6dcc8;
+  text-decoration-color: rgba(212, 176, 114, 0.6);
+}
+
+.dark-stage-wrapper .person-inline-link:hover {
+  color: #ffffff;
+  background-color: rgba(212, 176, 114, 0.22);
+}
+
+/* Main Page: PhMr. Václav Pokorný Borderless 3-Column Showcase on Black */
 .vaclav-showcase-grid {
   display: grid;
   grid-template-columns: 1fr 1.15fr 1.25fr;
-  gap: 2rem;
-  align-items: stretch;
+  gap: 2.5rem;
+  align-items: center;
 }
 
 .vaclav-photo-col {
   display: flex;
+  justify-content: center;
 }
 
-.vaclav-large-portrait {
+/* Portrait blends into the black background with radial edge fade (no hard border) */
+.vaclav-fading-portrait {
+  position: relative;
   width: 100%;
-  min-height: 360px;
-  background: linear-gradient(145deg, #efe8da 0%, #dfd3be 100%);
-  border: 1px solid #cbbba0;
-  outline: 3px solid var(--bg-parchment);
-  outline-offset: -8px;
-  border-radius: 6px;
-  padding: 2rem 1.5rem;
+  min-height: 380px;
+  border-radius: 12px;
+  background: radial-gradient(
+    ellipse at center,
+    #342c22 0%,
+    #1f1b16 52%,
+    rgba(7, 8, 10, 0) 76%
+  );
+  padding: 2.25rem 1.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: #5c4b32;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  color: #e6dcc8;
 }
 
 .portrait-placeholder-icon {
-  width: 76px;
-  height: 76px;
+  width: 82px;
+  height: 82px;
   border-radius: 50%;
-  background: rgba(158, 123, 66, 0.16);
-  border: 1px solid rgba(158, 123, 66, 0.45);
+  background: rgba(212, 176, 114, 0.14);
+  border: 1px solid rgba(212, 176, 114, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 1rem;
-  color: var(--accent-gold);
+  color: #d4b072;
 }
 
 .portrait-placeholder-title {
   font-family: var(--font-serif);
-  font-size: 1.35rem;
+  font-size: 1.4rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #ffffff;
   margin-bottom: 0.35rem;
 }
 
 .portrait-placeholder-sub {
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: #b7c0c9;
   max-width: 240px;
 }
 
+/* Floating borderless description + Více button in white font */
 .vaclav-desc-col {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-top: 3px solid var(--accent-gold);
-  border-radius: 6px;
-  padding: 2.25rem 2rem;
+  background: transparent;
+  border: none;
+  padding: 1rem 0.5rem;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 1.75rem;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
 }
 
 .vaclav-lead-sentence {
   font-family: var(--font-serif);
-  font-size: 1.42rem;
+  font-size: 1.55rem;
   line-height: 1.55;
-  color: var(--text-primary);
+  color: #ffffff;
 }
 
 .vaclav-cta-wrap {
@@ -500,17 +625,17 @@ h1, h2, h3, h4 {
   align-items: center;
 }
 
-/* Right Column: Hudební a rozhlasový archiv + Integrated Bottom Audio Bar */
+/* Right Column: Bordered Hudební a rozhlasový archiv + Integrated Bottom Audio Bar */
 .audio-card-panel {
-  background: var(--bg-dark);
+  background: #141920;
   color: #ffffff;
   border-radius: 6px;
-  border: 1px solid rgba(158, 123, 66, 0.4);
+  border: 1.5px solid var(--accent-gold);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
 }
 
 .audio-panel-header {
@@ -587,7 +712,7 @@ h1, h2, h3, h4 {
 
 /* Integrated Audio Bar at the Bottom of the Hudební a rozhlasový archiv Section */
 .audio-panel-player {
-  background: #14181d;
+  background: #0d1015;
   border-top: 2px solid var(--accent-gold);
   padding: 0.9rem 1.25rem;
   display: flex;
@@ -645,122 +770,170 @@ h1, h2, h3, h4 {
 }
 
 /* ==========================================================================
-   Václav Pokorný Subpage: Edge Photos + Long Top Bio
+   Václav Pokorný Subpage: Floating Left Bio + 2 Larger Stacked Right Photos
+   & Straight Bordered Clickable Photo Frames along the Left of the Timeline
    ========================================================================== */
 .vaclav-subpage-intro {
   background: linear-gradient(180deg, #f3ede2 0%, var(--bg-parchment) 100%);
   border-bottom: 1px solid var(--border-subtle);
-  padding: 3.25rem 1.5rem;
+  padding: 3.5rem 1.5rem 3.75rem;
 }
 
-.vaclav-edge-layout {
-  max-width: 1360px;
+.vaclav-top-split {
+  max-width: 1240px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 230px 1fr 230px;
-  gap: 2rem;
-  align-items: start;
-}
-
-.edge-photo-col {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.edge-photo-card {
-  background: var(--bg-card);
-  border: 1px solid #cbbba0;
-  padding: 0.55rem;
-  border-radius: 5px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
-}
-
-.edge-photo-left .edge-photo-card:first-child {
-  transform: rotate(-1.5deg);
-}
-
-.edge-photo-left .edge-photo-card:last-child {
-  transform: rotate(1deg);
-}
-
-.edge-photo-right .edge-photo-card:first-child {
-  transform: rotate(1.5deg);
-}
-
-.edge-photo-right .edge-photo-card:last-child {
-  transform: rotate(-1deg);
-}
-
-.edge-photo-placeholder {
-  background: linear-gradient(145deg, #efe8da 0%, #e2d6c1 100%);
-  min-height: 150px;
-  border-radius: 3px;
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 3rem;
   align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 0.75rem;
-  color: var(--accent-gold);
 }
 
-.edge-photo-placeholder span {
-  font-family: var(--font-serif);
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--text-primary);
-}
-
-.edge-photo-placeholder small {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  margin-top: 0.25rem;
-}
-
-.edge-photo-caption {
-  font-size: 0.74rem;
-  color: var(--text-secondary);
-  text-align: center;
-  padding-top: 0.45rem;
-  font-style: italic;
-}
-
-.vaclav-center-bio {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-top: 4px solid var(--accent-gold);
-  padding: 2.5rem;
-  border-radius: 6px;
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.04);
+/* Floating borderless typography styled like the Úvod page, adapted for the light background */
+.vaclav-floating-bio {
+  background: transparent;
+  border: none;
+  padding: 0.5rem 0;
 }
 
 .vaclav-main-heading {
-  font-size: clamp(2rem, 3.5vw, 2.8rem);
-  margin-bottom: 1.15rem;
+  font-size: clamp(2.15rem, 3.8vw, 3rem);
+  margin-bottom: 1.25rem;
   color: var(--text-primary);
 }
 
 .vaclav-bio-paragraphs {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  font-size: 1.02rem;
+  gap: 1.15rem;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+.vaclav-lead-light {
+  font-family: var(--font-serif);
+  font-size: 1.44rem;
+  line-height: 1.52;
   color: var(--text-primary);
 }
 
+/* 2 bigger photos stacked above each other on the right side of the main text */
+.vaclav-top-photos-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+/* Timeline layout with straight bordered clickable photo frames on the left */
+.vaclav-timeline-with-photos {
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  gap: 2.75rem;
+  align-items: start;
+}
+
+.vaclav-side-photos-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.65rem;
+}
+
+/* Refined straight bordered photo frames (no tilt, clickable & expandable) */
+.vaclav-framed-photo {
+  background: var(--bg-card);
+  border: 1px solid #cab89c;
+  border-top: 3px solid var(--accent-gold);
+  border-radius: 6px;
+  padding: 0.7rem;
+  box-shadow: 0 6px 18px rgba(30, 36, 43, 0.06);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.vaclav-framed-photo:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-gold);
+  box-shadow: 0 12px 28px rgba(30, 36, 43, 0.13);
+}
+
+.vaclav-framed-inner {
+  position: relative;
+  background: linear-gradient(145deg, #273038 0%, #192026 100%);
+  border: 1px solid rgba(230, 220, 200, 0.22);
+  border-radius: 4px;
+  padding: 1.35rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #f4ece0;
+}
+
+.vaclav-framed-large .vaclav-framed-inner {
+  min-height: 215px;
+}
+
+.vaclav-framed-side .vaclav-framed-inner {
+  min-height: 175px;
+}
+
+.vaclav-framed-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(158, 123, 66, 0.9);
+  color: #ffffff;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+}
+
+.vaclav-framed-icon {
+  font-size: 2rem;
+  margin-bottom: 0.35rem;
+  opacity: 0.9;
+}
+
+.vaclav-framed-title {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.25;
+}
+
+.vaclav-framed-date {
+  font-size: 0.74rem;
+  color: #d4b072;
+  margin-top: 0.2rem;
+}
+
+.vaclav-framed-caption {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 0.6rem 0.35rem 0.15rem;
+  line-height: 1.38;
+}
+
 /* ==========================================================================
-   Google Photos Collage-Style Media Gallery
+   Google Photos Collage-Style Media Gallery (Spacious, Uncluttered, Varying Dimensions)
    ========================================================================== */
 .filter-bar {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.75rem;
+  gap: 0.55rem;
+  margin-bottom: 2rem;
   flex-wrap: wrap;
 }
 
 .filter-btn {
-  padding: 0.5rem 1.1rem;
+  padding: 0.52rem 1.15rem;
   border: 1px solid var(--border-subtle);
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -782,73 +955,90 @@ h1, h2, h3, h4 {
   border-color: var(--accent-green);
 }
 
-/* Dense Masonry / Google Photos Collage Grid where varying tile sizes fill gaps */
+/* Filter buttons adapted for the dark stage on the main page */
+.dark-stage-wrapper .filter-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(230, 220, 200, 0.22);
+  color: #d0d7de;
+}
+
+.dark-stage-wrapper .filter-btn:hover {
+  border-color: var(--accent-gold);
+  color: #ffffff;
+  background: rgba(158, 123, 66, 0.18);
+}
+
+.dark-stage-wrapper .filter-btn.active {
+  background: var(--accent-gold);
+  border-color: var(--accent-gold);
+  color: #ffffff;
+}
+
+/* Larger, cohesive 12-column dense collage where tiles have varying widths (4, 5, 6, 7 cols)
+   while maintaining a generous, consistent row height so titles always fit cleanly */
 .collage-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  grid-auto-rows: 155px;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: 245px;
   grid-auto-flow: dense;
-  gap: 14px;
+  gap: 18px;
 }
 
 .collage-tile {
   position: relative;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  border: 1px solid var(--border-subtle);
-  background: #e9e2d4;
+  border: 1px solid rgba(230, 220, 200, 0.24);
+  background: #1b222a;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
-/* Varied Tile Proportions to create an organic Google Photos collage */
+/* Varying horizontal dimensions that pack cleanly without extreme size differences */
+.collage-tile.tile-large {
+  grid-column: span 7;
+}
+
 .collage-tile.tile-wide {
-  grid-column: span 2;
-  grid-row: span 1;
+  grid-column: span 6;
 }
 
 .collage-tile.tile-tall {
-  grid-column: span 1;
-  grid-row: span 2;
-}
-
-.collage-tile.tile-large {
-  grid-column: span 2;
-  grid-row: span 2;
+  grid-column: span 5;
 }
 
 .collage-tile.tile-normal {
-  grid-column: span 1;
-  grid-row: span 1;
+  grid-column: span 4;
 }
 
 .collage-tile:hover {
-  transform: translateY(-3px) scale(1.01);
-  box-shadow: 0 12px 28px rgba(30, 36, 43, 0.16);
+  transform: translateY(-4px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.38);
   border-color: var(--accent-gold);
   z-index: 2;
 }
 
-/* Distinct visual backdrops by media type */
+/* Rich, dark-friendly visual backdrops by media type */
 .collage-tile.media-pdf {
-  background: linear-gradient(145deg, #efe7d6 0%, #dfd2b8 100%);
+  background: linear-gradient(145deg, #3a3022 0%, #211b13 100%);
+  color: #faf7f2;
 }
 
 .collage-tile.media-photo {
-  background: linear-gradient(145deg, #2b3932 0%, #1e2824 100%);
+  background: linear-gradient(145deg, #243830 0%, #15221d 100%);
   color: #faf7f2;
 }
 
 .collage-tile.media-audio {
-  background: linear-gradient(145deg, #232a34 0%, #171c23 100%);
+  background: linear-gradient(145deg, #232c3b 0%, #141923 100%);
   color: #faf7f2;
 }
 
 .collage-tile-visual {
-  padding: 0.75rem;
+  padding: 1rem 1.1rem 0.5rem;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -859,27 +1049,28 @@ h1, h2, h3, h4 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
 .collage-type-badge {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  background: rgba(30, 36, 43, 0.75);
+  padding: 0.26rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(12, 15, 19, 0.75);
+  border: 1px solid rgba(230, 220, 200, 0.22);
   color: #f4ece0;
   backdrop-filter: blur(4px);
 }
 
 .collage-count-pill {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  padding: 0.18rem 0.45rem;
-  border-radius: 3px;
-  background: rgba(158, 123, 66, 0.88);
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(158, 123, 66, 0.9);
   color: #ffffff;
 }
 
@@ -893,50 +1084,32 @@ h1, h2, h3, h4 {
 }
 
 .collage-visual-icon {
-  font-size: 2rem;
+  font-size: 2.35rem;
   line-height: 1;
-  margin-bottom: 0.2rem;
   opacity: 0.85;
 }
 
-.collage-visual-subtitle {
-  font-family: var(--font-serif);
-  font-size: 0.85rem;
-  opacity: 0.8;
-}
-
 .collage-tile-overlay {
-  background: linear-gradient(180deg, rgba(20, 24, 29, 0.72) 0%, rgba(20, 24, 29, 0.95) 100%);
+  background: linear-gradient(180deg, rgba(10, 12, 16, 0.0) 0%, rgba(10, 12, 16, 0.82) 32%, rgba(10, 12, 16, 0.96) 100%);
   color: #ffffff;
-  padding: 0.65rem 0.85rem;
+  padding: 1.1rem 1.15rem 1rem;
 }
 
 .collage-meta {
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #e6dcc8;
+  color: #d4b072;
   font-weight: 600;
+  margin-bottom: 0.2rem;
 }
 
 .collage-title {
-  font-size: 1.02rem;
+  font-size: 1.2rem;
   color: #ffffff;
-  margin: 0.1rem 0;
-  line-height: 1.2;
-}
-
-.collage-desc {
-  font-size: 0.74rem;
-  color: #cbd2d9;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.collage-tile.tile-normal .collage-desc {
-  display: none;
+  line-height: 1.28;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 /* ==========================================================================
@@ -1017,15 +1190,25 @@ h1, h2, h3, h4 {
 .modal-window {
   position: relative;
   background: var(--bg-card);
-  max-width: 1040px;
-  width: 100%;
-  max-height: 88vh;
+  max-width: 1460px;
+  width: 94vw;
+  height: 88vh;
+  max-height: 90vh;
   border-radius: 8px;
   overflow: hidden;
   display: grid;
   grid-template-columns: 1.15fr 1fr;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
   border: 1px solid var(--accent-gold);
+}
+
+.modal-window.modal-single-pane {
+  grid-template-columns: 1fr;
+  max-width: 1200px;
+}
+
+.modal-pane-hidden {
+  display: none !important;
 }
 
 .modal-close-icon {
@@ -1060,28 +1243,33 @@ h1, h2, h3, h4 {
   flex-direction: column;
   justify-content: space-between;
   min-height: 440px;
+  height: 100%;
   overflow: hidden;
 }
 
 .modal-pane-details,
 .modal-pane-text {
-  padding: 2rem;
+  padding: 2.5rem 2.75rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   overflow-y: auto;
-  max-height: 88vh;
+  height: 100%;
+  max-height: 90vh;
   background: var(--bg-card);
 }
 
 .modal-text-scroll,
 .modal-details-content {
   overflow-y: auto;
-  padding-right: 0.4rem;
+  padding-right: 0.5rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-main-title {
-  font-size: 1.85rem;
+  font-size: 2.05rem;
   color: var(--text-primary);
   margin: 0.35rem 0 0.5rem;
 }
@@ -1096,10 +1284,10 @@ h1, h2, h3, h4 {
 .modal-long-body {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-  font-size: 0.96rem;
+  gap: 1.05rem;
+  font-size: 1.02rem;
   color: var(--text-primary);
-  line-height: 1.68;
+  line-height: 1.72;
 }
 
 .modal-desc-text {
@@ -1339,7 +1527,7 @@ h1, h2, h3, h4 {
 
 .samsung-main-img {
   max-width: 100%;
-  max-height: 320px;
+  max-height: 58vh;
   object-fit: contain;
   border-radius: 4px;
 }
@@ -1348,10 +1536,10 @@ h1, h2, h3, h4 {
   background: linear-gradient(145deg, #27303a 0%, #1c222a 100%);
   border: 1px solid rgba(230, 220, 200, 0.25);
   border-radius: 6px;
-  padding: 2rem 1.5rem;
+  padding: 2.75rem 2rem;
   width: 100%;
-  max-width: 400px;
-  min-height: 230px;
+  max-width: 560px;
+  min-height: 340px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1520,7 +1708,7 @@ h1, h2, h3, h4 {
 }
 
 .edge-top {
-  top: 68px; left: 0; right: 0; height: 42px;
+  top: 54px; left: 0; right: 0; height: 42px;
   background: linear-gradient(180deg, rgba(158, 123, 66, 0.22), transparent);
 }
 
@@ -1530,90 +1718,13 @@ h1, h2, h3, h4 {
 }
 
 .edge-left {
-  top: 68px; bottom: 0; left: 0; width: 42px;
+  top: 54px; bottom: 0; left: 0; width: 42px;
   background: linear-gradient(90deg, rgba(158, 123, 66, 0.22), transparent);
 }
 
 .edge-right {
-  top: 68px; bottom: 0; right: 0; width: 42px;
+  top: 54px; bottom: 0; right: 0; width: 42px;
   background: linear-gradient(270deg, rgba(158, 123, 66, 0.22), transparent);
-}
-
-/* Floating Legend HUD below the Top Navigation Bar */
-.canvas-hud-top {
-  position: fixed;
-  top: 78px;
-  left: 16px;
-  right: 16px;
-  max-width: 1080px;
-  z-index: 240;
-  background: rgba(250, 247, 242, 0.94);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border-subtle);
-  border-left: 4px solid var(--accent-gold);
-  border-radius: 6px;
-  padding: 0.55rem 1.1rem;
-  box-shadow: 0 6px 20px rgba(30, 36, 43, 0.08);
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.hud-divider {
-  width: 1px;
-  height: 26px;
-  background: var(--border-subtle);
-}
-
-.hud-title-group {
-  display: flex;
-  flex-direction: column;
-}
-
-.hud-title {
-  font-size: 1.15rem;
-  color: var(--text-primary);
-  line-height: 1.15;
-}
-
-.hud-subtitle {
-  font-size: 0.73rem;
-  color: var(--text-secondary);
-}
-
-.hud-legend {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  font-size: 0.78rem;
-  font-weight: 500;
-  margin-left: auto;
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.dot-pharmacist {
-  background-color: var(--accent-green);
-}
-
-.dot-brozik {
-  background-color: var(--accent-gold);
-}
-
-.dot-family {
-  background-color: #6b705c;
 }
 
 /* Bottom-Right Corner Zoom Controls */
@@ -1938,25 +2049,30 @@ h1, h2, h3, h4 {
 
 .tree-bio-box {
   background: #faf6ee;
-  border-left: 3px solid var(--accent-gold);
-  padding: 0.85rem 1rem;
-  border-radius: 0 4px 4px 0;
-  font-size: 0.92rem;
+  border-left: 3.5px solid var(--accent-gold);
+  padding: 1.25rem 1.5rem;
+  border-radius: 0 5px 5px 0;
+  font-size: 1.04rem;
   color: var(--text-primary);
-  line-height: 1.6;
+  line-height: 1.72;
+}
+
+.tree-bio-box.tree-bio-expanded {
+  flex: 1;
+  min-height: 240px;
 }
 
 .tree-bio-label {
   display: block;
   font-family: var(--font-serif);
   font-weight: 700;
-  font-size: 1.02rem;
+  font-size: 1.15rem;
   color: var(--accent-green);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.45rem;
 }
 
 .person-relations-box {
-  margin-top: 0.75rem;
+  margin-top: 1.1rem;
 }
 
 .relation-pills-wrap {
@@ -1987,23 +2103,39 @@ h1, h2, h3, h4 {
    Responsive Breakpoints
    ========================================================================== */
 @media (max-width: 1024px) {
-  .vaclav-showcase-grid {
+  .hero-card-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .vaclav-showcase-grid,
+  .vaclav-top-split,
+  .vaclav-timeline-with-photos {
     grid-template-columns: 1fr;
   }
-  .vaclav-edge-layout {
-    grid-template-columns: 1fr;
-  }
-  .edge-photo-col {
+  .vaclav-top-photos-stack,
+  .vaclav-side-photos-col {
     flex-direction: row;
+    flex-wrap: wrap;
     justify-content: center;
   }
-  .edge-photo-card {
-    max-width: 260px;
+  .vaclav-framed-photo {
+    max-width: 320px;
     width: 100%;
+  }
+  .collage-tile.tile-large,
+  .collage-tile.tile-wide,
+  .collage-tile.tile-tall,
+  .collage-tile.tile-normal {
+    grid-column: span 6;
   }
 }
 
 @media (max-width: 820px) {
+  .brand-subtitle {
+    display: none;
+  }
+  .hero-card-row {
+    grid-template-columns: 1fr;
+  }
   .modal-window {
     grid-template-columns: 1fr;
     max-height: 92vh;
@@ -2020,8 +2152,10 @@ h1, h2, h3, h4 {
     flex-direction: column;
     align-items: flex-start;
   }
+  .collage-tile.tile-large,
   .collage-tile.tile-wide,
-  .collage-tile.tile-large {
-    grid-column: span 1;
+  .collage-tile.tile-tall,
+  .collage-tile.tile-normal {
+    grid-column: span 12;
   }
 }

@@ -14,98 +14,68 @@
   <header class="site-header">
     <div class="nav-container">
       <a href="index.html" class="brand">
-        <span class="brand-title">Pokorní z Příbora</span>
-        <span class="brand-subtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
+        <span class="brand-title" data-cms="global.brandTitle">Pokorní z Příbora</span>
+        <span class="brand-subtitle" data-cms="global.brandSubtitle">Lékárna U Panny Marie pomocné • Zal. 1756</span>
       </a>
       <nav>
         <ul class="nav-links">
-          <li><a href="index.html">Úvod</a></li>
-          <li><a href="historie-lekarny.html">Historie lékárny</a></li>
-          <li><a href="vaclav-pokorny.html" class="active">PhMr. Václav Pokorný</a></li>
-          <li><a href="rodokmen.html" class="nav-highlight">Interaktivní rodokmen ↗</a></li>
-          <li><a href="#vaclav-galerie">Hudební archiv a galerie</a></li>
+          <li><a href="rodokmen.html" data-cms="global.navTree">Interaktivní rodokmen</a></li>
+          <li><a href="index.html" data-cms="global.navHome">Úvod</a></li>
+          <li><a href="historie-lekarny.html" data-cms="global.navPharmacy">Historie lékárny</a></li>
+          <li><a href="vaclav-pokorny.html" class="active" data-cms="global.navVaclav">PhMr. Václav Pokorný</a></li>
+          <li><a href="#vaclav-galerie" data-cms="global.navArchive">Archiv</a></li>
         </ul>
       </nav>
     </div>
   </header>
 
-  <!-- Subpage Top Section with Edge Photos and Long Description in the Center -->
+  <!-- Subpage Top Section: Floating Typography on the Left + 2 Larger Stacked Clickable Photos on the Right -->
   <section class="vaclav-subpage-intro">
-    <div class="vaclav-edge-layout">
-      <!-- Left Edge Photos Column -->
-      <aside class="edge-photo-col edge-photo-left">
-        <div class="edge-photo-card">
-          <div class="edge-photo-placeholder">
-            <span>[ Fotografie ]</span>
-            <small>PhMr. Václav Pokorný u klavíru (40. léta)</small>
-          </div>
-          <div class="edge-photo-caption">Za klavírem v éře spolupráce s R. A. Dvorským</div>
-        </div>
-        <div class="edge-photo-card">
-          <div class="edge-photo-placeholder">
-            <span>[ Fotografie ]</span>
-            <small>V příborské lékárně (1946)</small>
-          </div>
-          <div class="edge-photo-caption">Šestá generace v lékárně U Panny Marie pomocné</div>
-        </div>
-      </aside>
-
-      <!-- Center Long Biography Description -->
-      <div class="vaclav-center-bio">
-        <span class="section-eyebrow">6. generace lékárníků • Hudební skladatel, klavírista a aranžér</span>
-        <h1 class="vaclav-main-heading">PhMr. Václav Pokorný (26. 7. 1918 – 11. 7. 2011)</h1>
+    <div class="vaclav-top-split">
+      <!-- Left: Borderless Floating Biography Paragraph (styled like Úvod page, on light background) -->
+      <div class="vaclav-floating-bio">
+        <span class="section-eyebrow" data-cms="vaclav.introEyebrow">6. generace lékárníků • Hudební skladatel, klavírista a aranžér</span>
+        <h1 class="vaclav-main-heading" data-cms="vaclav.introTitle">PhMr. Václav Pokorný (26. 7. 1918 – 11. 7. 2011)</h1>
         <div id="vaclav-long-bio" class="vaclav-bio-paragraphs">
-          <p>
+          <p class="vaclav-lead-light" data-cms-linkify="vaclav.introLeadParagraph">
             <strong>PhMr. Václav Pokorný</strong> spojil ve svém životě dvě zdánlivě odlišné disciplíny – precizní lékárenské řemeslo zděděné po pěti generacích předků v Příboře (od zakladatele Václava Pokorného přes Kajetána Pokorného, Ludvíka Pokorného, starostu Ferdinanda Pokorného až po otce Dr. Vladimíra Pokorného a matku Boženu Brožíkovou) a nespoutanou radost ze swingové hudby, kompozice a aranžování.
           </p>
-          <p>
+          <p data-cms-linkify="vaclav.introSecondParagraph">
             Od gymnaziálních let v Příboře, kde sedával v lavici se svým celoživotním přítelem a skladatelem Zdeňkem Petrem, směřoval k jazzu a moderní populární písni. Během farmaceutických studií v Praze za druhé světové války se stal kmenovým autorem věhlasného nakladatelství R. A. Dvorského. Po poválečném návratu do Příbora a komunistickém znárodnění rodinné lékárny v roce 1950 působil v Opavě a následně v Praze, kde spolupracoval s orchestry Karla Vlacha, Karla Krautgartnera, vokálním souborem Eva Kvartet i divadlem Semafor (autorské album <em>Několik přání</em> s Václavem Markem). Spolu s manželkou vychoval děti Annu, Petra Pokorného a Kateřinu. Jeho písně dnes znovu ožívají v podání zpěvačky Dáji Šimíčkové a kapely Shadde Yadda.
           </p>
         </div>
-        <div style="margin-top: 1.5rem;">
-          <a href="rodokmen.html?person=vaclav-6" class="btn btn-primary">Zobrazit PhMr. Václava Pokorného v rodokmenu ↗</a>
+        <div style="margin-top: 1.75rem;">
+          <a href="rodokmen.html?person=vaclav-6" class="btn btn-primary" data-cms="vaclav.treeBtnLabel">Zobrazit PhMr. Václava Pokorného v rodokmenu ↗</a>
         </div>
       </div>
 
-      <!-- Right Edge Photos Column -->
-      <aside class="edge-photo-col edge-photo-right">
-        <div class="edge-photo-card">
-          <div class="edge-photo-placeholder">
-            <span>[ Fotografie ]</span>
-            <small>S orchestrem a v rozhlase (60.–90. léta)</small>
-          </div>
-          <div class="edge-photo-caption">Spolupráce s velkými orchestry a divadlem Semafor</div>
-        </div>
-        <div class="edge-photo-card">
-          <div class="edge-photo-placeholder">
-            <span>[ Fotografie ]</span>
-            <small>Portrét z pozdních let (Praha)</small>
-          </div>
-          <div class="edge-photo-caption">Vzpomínková vyprávění pro Český rozhlas</div>
-        </div>
-      </aside>
+      <!-- Right: 2 Bigger Stacked Clickable Photos -->
+      <aside id="vaclav-top-right-photos" class="vaclav-top-photos-stack"></aside>
     </div>
   </section>
 
-  <!-- Timeline of Václav Pokorný's Life -->
+  <!-- Timeline of Václav Pokorný's Life with Straight Bordered Clickable Photo Frames on the Left -->
   <section class="section">
     <div class="section-header">
-      <span class="section-eyebrow">Životní a umělecká dráha</span>
-      <h2 class="section-title">Časová osa života PhMr. Václava Pokorného</h2>
-      <p class="section-desc">
-        Kliknutím na libovolnou kapitolu nebo na tlačítko <strong>Více</strong> otevřete podrobné vyprávění a dobové fotografie v překryvném okně. Všechna jména rodinných příslušníků jsou proklikávací do rodokmenu.
+      <span class="section-eyebrow" data-cms="vaclav.timelineEyebrow">Životní a umělecká dráha</span>
+      <h2 class="section-title" data-cms="vaclav.timelineTitle">Časová osa života PhMr. Václava Pokorného</h2>
+      <p class="section-desc" data-cms="vaclav.timelineDesc">
+        Kliknutím na libovolnou kapitolu, na tlačítko Více nebo na fotografie vlevo otevřete detailní náhled v překryvném okně. Všechna jména rodinných příslušníků jsou proklikávací do rodokmenu.
       </p>
     </div>
 
-    <div id="vaclav-timeline-full" class="timeline"></div>
+    <div class="vaclav-timeline-with-photos">
+      <aside id="vaclav-timeline-left-photos" class="vaclav-side-photos-col"></aside>
+      <div id="vaclav-timeline-full" class="timeline"></div>
+    </div>
   </section>
 
   <!-- Bottom Gallery Section relevant to Václav Pokorný -->
   <section id="vaclav-galerie" class="section" style="border-bottom:none;">
     <div class="section-header">
-      <span class="section-eyebrow">Osobní a hudební archiv</span>
-      <h2 class="section-title">Notové záznamy, nahrávky, diplomy a fotografie</h2>
-      <p class="section-desc">
+      <span class="section-eyebrow" data-cms="vaclav.archiveEyebrow">Osobní a hudební archiv</span>
+      <h2 class="section-title" data-cms="vaclav.archiveTitle">Archiv</h2>
+      <p class="section-desc" data-cms="vaclav.archiveDesc">
         Interaktivní koláž partitur z nakladatelství R. A. Dvorského, rozhlasových nahrávek, dokumentů a fotografií ze života PhMr. Václava Pokorného.
       </p>
     </div>

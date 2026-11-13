@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  applyPageTextFromCms();
   initMainPageTimeline();
   initFullPharmacyPage();
   initFullVaclavPage();
@@ -7,6 +8,57 @@ document.addEventListener('DOMContentLoaded', () => {
   initUniversalModal();
   handleDeepLinkHash();
 });
+
+// ==========================================================================
+// 0. Apply CMS-managed Page Titles, Subtitles, Paragraphs & Hero Images
+// ==========================================================================
+function getCmsValue(keyPath) {
+  if (!SITE_DATA.pageText || !keyPath) return undefined;
+  return keyPath.split('.').reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : undefined), SITE_DATA.pageText);
+}
+
+function applyPageTextFromCms() {
+  if (!SITE_DATA.pageText) return;
+
+  // Plain text bindings
+  document.querySelectorAll('[data-cms]').forEach(el => {
+    const val = getCmsValue(el.getAttribute('data-cms'));
+    if (typeof val === 'string' && val.trim() !== '') {
+      el.textContent = val;
+    }
+  });
+
+  // Auto-linkified text bindings (e.g., paragraphs with family names)
+  document.querySelectorAll('[data-cms-linkify]').forEach(el => {
+    const val = getCmsValue(el.getAttribute('data-cms-linkify'));
+    if (typeof val === 'string' && val.trim() !== '') {
+      el.innerHTML = linkifyFamilyNames(val);
+    }
+  });
+
+  // Hero card background images on Úvod
+  document.querySelectorAll('[data-cms-bg]').forEach(el => {
+    const imgUrl = getCmsValue(el.getAttribute('data-cms-bg'));
+    if (typeof imgUrl === 'string' && imgUrl.trim() !== '') {
+      el.style.backgroundImage = `url('${imgUrl}')`;
+      el.style.backgroundSize = 'cover';
+      el.style.backgroundPosition = 'center';
+      const placeholder = el.querySelector('.hero-img-placeholder');
+      if (placeholder) placeholder.style.display = 'none';
+    }
+  });
+
+  // Main page Václav Pokorný portrait image (if uploaded in CMS)
+  const homePortrait = document.getElementById('vaclav-home-portrait');
+  const portraitUrl = getCmsValue('home.vaclavPortraitImg');
+  if (homePortrait && typeof portraitUrl === 'string' && portraitUrl.trim() !== '') {
+    const caption = getCmsValue('home.vaclavPortraitCaption') || '';
+    homePortrait.innerHTML = `
+      <img src="${portraitUrl}" alt="${caption}" style="width:100%; height:100%; max-height:420px; object-fit:cover; border-radius:6px;" />
+      ${caption ? `<div class="portrait-placeholder-sub" style="margin-top:0.5rem;">${caption}</div>` : ''}
+    `;
+  }
+}
 
 // ==========================================================================
 // Helper: Turn family member names in text into clickable links to rodokmen.html
@@ -62,7 +114,7 @@ function initMainPageTimeline() {
       </div>
       <div class="timeline-compact-action">
         <a href="historie-lekarny.html#${item.id}" class="btn btn-primary btn-sm">
-          Přejít na období →
+          Více →
         </a>
       </div>
     </div>
@@ -129,7 +181,7 @@ function initFullPharmacyPage() {
 }
 
 // ==========================================================================
-// 3. PhMr. Václav Pokorný Subpage: Bio + Full Clickable Timeline with "Více" Overlay
+// 3. PhMr. Václav Pokorný Subpage: Bio + Clickable Photos + Full Clickable Timeline
 // ==========================================================================
 function initFullVaclavPage() {
   const bioContainer = document.getElementById('vaclav-long-bio');
@@ -137,6 +189,22 @@ function initFullVaclavPage() {
     bioContainer.querySelectorAll('p').forEach(p => {
       p.innerHTML = linkifyFamilyNames(p.innerHTML);
     });
+  }
+
+  // Render the 2 bigger stacked clickable photos on the right of the main text
+  const topRightPhotosEl = document.getElementById('vaclav-top-right-photos');
+  if (topRightPhotosEl && Array.isArray(SITE_DATA.vaclavInteractivePhotos)) {
+    const heroPhotos = SITE_DATA.vaclavInteractivePhotos.filter(p => p.placement === 'top-right');
+    topRightPhotosEl.innerHTML = heroPhotos.map(item => renderVaclavPhotoFrame(item, true)).join('');
+    wireVaclavPhotoFrames(topRightPhotosEl);
+  }
+
+  // Render the straight bordered clickable photo frames on the left side along the timeline
+  const sidePhotosEl = document.getElementById('vaclav-timeline-left-photos');
+  if (sidePhotosEl && Array.isArray(SITE_DATA.vaclavInteractivePhotos)) {
+    const sidePhotos = SITE_DATA.vaclavInteractivePhotos.filter(p => p.placement === 'timeline-left');
+    sidePhotosEl.innerHTML = sidePhotos.map(item => renderVaclavPhotoFrame(item, false)).join('');
+    wireVaclavPhotoFrames(sidePhotosEl);
   }
 
   const vaclavTimeline = document.getElementById('vaclav-timeline-full');
@@ -158,6 +226,91 @@ function initFullVaclavPage() {
   `).join('');
 
   wireInteractiveTimeline(vaclavTimeline, SITE_DATA.vaclavTimeline, 'period');
+}
+
+function renderVaclavPhotoFrame(item, isLarge) {
+  const modeBadge = item.mode === 'split'
+    ? '🖼️ Fotografie + popis ↗'
+    : `🖼️ Fotogalerie (${item.photos?.length || 1}) ↗`;
+
+  const coverUrl = item.thumbnailUrl || (item.photos && item.photos[0] && item.photos[0].url) || null;
+  const innerStyle = coverUrl
+    ? `style="background-image: linear-gradient(180deg, rgba(18, 22, 27, 0.35) 0%, rgba(18, 22, 27, 0.78) 100%), url('${coverUrl}'); background-size: cover; background-position: center;"`
+    : '';
+
+  return `
+    <figure class="vaclav-framed-photo ${isLarge ? 'vaclav-framed-large' : 'vaclav-framed-side'}" data-photo-id="${item.id}" tabindex="0" role="button" aria-label="Zvětšit fotografii: ${item.title}">
+      <div class="vaclav-framed-inner" ${innerStyle}>
+        <span class="vaclav-framed-badge">${modeBadge}</span>
+        ${coverUrl ? '' : '<div class="vaclav-framed-icon">🖼️</div>'}
+        <div class="vaclav-framed-title">${item.title}</div>
+        <div class="vaclav-framed-date">${item.date}</div>
+      </div>
+      <figcaption class="vaclav-framed-caption">${item.caption}</figcaption>
+    </figure>
+  `;
+}
+
+function wireVaclavPhotoFrames(container) {
+  container.querySelectorAll('.vaclav-framed-photo').forEach(frame => {
+    frame.addEventListener('click', () => {
+      const id = frame.getAttribute('data-photo-id');
+      const item = SITE_DATA.vaclavInteractivePhotos?.find(p => p.id === id);
+      if (item) openVaclavPhotoOverlay(item);
+    });
+    frame.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const id = frame.getAttribute('data-photo-id');
+        const item = SITE_DATA.vaclavInteractivePhotos?.find(p => p.id === id);
+        if (item) openVaclavPhotoOverlay(item);
+      }
+    });
+  });
+}
+
+function openVaclavPhotoOverlay(item) {
+  const backdrop = document.getElementById('universal-modal');
+  const modalWindow = backdrop?.querySelector('.modal-window');
+  const leftPane = document.getElementById('modal-left-pane');
+  const rightPane = document.getElementById('modal-right-pane');
+  if (!backdrop || !modalWindow || !leftPane || !rightPane) return;
+
+  const photos = item.photos && item.photos.length > 0
+    ? item.photos
+    : [{ url: null, caption: item.caption || item.title }];
+
+  if (item.mode === 'carousel') {
+    // Version 2: Just the photo carousel and small caption (full-width single pane)
+    modalWindow.classList.add('modal-single-pane');
+    leftPane.className = 'modal-left-pane modal-pane-media';
+    leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, item.title);
+    wireSamsungCarousel(leftPane, photos);
+    rightPane.className = 'modal-right-pane modal-pane-hidden';
+    rightPane.innerHTML = '';
+  } else {
+    // Version 1: Photo carousel on the left + text panel next to it on the right (like archive section)
+    modalWindow.classList.remove('modal-single-pane');
+    leftPane.className = 'modal-left-pane modal-pane-media';
+    leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, item.title);
+    wireSamsungCarousel(leftPane, photos);
+
+    rightPane.className = 'modal-right-pane modal-pane-details';
+    rightPane.innerHTML = `
+      <div class="modal-details-content">
+        <div class="archive-meta">${item.date} | ${linkifyFamilyNames(item.author || '')}</div>
+        <h2 class="modal-main-title">${item.title}</h2>
+        <p class="modal-desc-text">${linkifyFamilyNames(item.description || item.caption)}</p>
+      </div>
+      <div class="modal-footer-bar">
+        <button type="button" class="btn btn-primary modal-close-action">Zavřít náhled</button>
+      </div>
+    `;
+    rightPane.querySelector('.modal-close-action')?.addEventListener('click', closeUniversalModal);
+  }
+
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
 }
 
 function wireInteractiveTimeline(container, dataArray, timeKey) {
@@ -321,22 +474,25 @@ function renderCollageGallery(filterCategory, pageScope) {
       ? `<span class="collage-count-pill">${item.duration}</span>`
       : '';
 
+    const thumbUrl = item.thumbnailUrl || (item.photos && item.photos[0] && item.photos[0].url) || null;
+    const visualStyle = thumbUrl
+      ? `style="background-image: linear-gradient(180deg, rgba(16, 20, 24, 0.25) 0%, rgba(16, 20, 24, 0.85) 100%), url('${thumbUrl}'); background-size: cover; background-position: center;"`
+      : '';
+
     return `
       <article class="collage-tile ${sizeClass} media-${item.mediaType}" data-id="${item.id}" tabindex="0" role="button" aria-label="Otevřít: ${item.title}">
-        <div class="collage-tile-visual">
+        <div class="collage-tile-visual" ${visualStyle}>
           <div class="collage-tile-top-badges">
             <span class="collage-type-badge">${badge.icon} ${badge.label}</span>
             ${photoCountBadge}
           </div>
           <div class="collage-visual-center">
-            <div class="collage-visual-icon">${badge.icon}</div>
-            <div class="collage-visual-subtitle">${item.date}</div>
+            ${thumbUrl ? '' : `<div class="collage-visual-icon">${badge.icon}</div>`}
           </div>
         </div>
         <div class="collage-tile-overlay">
-          <div class="collage-meta">${item.category} • ${item.date}</div>
+          <div class="collage-meta">${item.date}</div>
           <h3 class="collage-title">${item.title}</h3>
-          <p class="collage-desc">${item.description}</p>
         </div>
       </article>
     `;
@@ -393,12 +549,15 @@ function closeUniversalModal() {
   backdrop.setAttribute('aria-hidden', 'true');
 }
 
-// A) Timeline Overlay: Long Description on the LEFT, Space for Photos Carousel on the RIGHT
+// A) Timeline Overlay: Photo Carousel on the LEFT, Long Description on the RIGHT
 function openTimelineOverlay(entry, timeKey = 'year') {
   const backdrop = document.getElementById('universal-modal');
+  const modalWindow = backdrop?.querySelector('.modal-window');
   const leftPane = document.getElementById('modal-left-pane');
   const rightPane = document.getElementById('modal-right-pane');
-  if (!backdrop || !leftPane || !rightPane) return;
+  if (!backdrop || !modalWindow || !leftPane || !rightPane) return;
+
+  modalWindow.classList.remove('modal-single-pane');
 
   const paragraphs = (entry.longDescription || entry.description || '')
     .split('\n\n')
@@ -409,9 +568,18 @@ function openTimelineOverlay(entry, timeKey = 'year') {
     ? `<div class="modal-person-subtitle">${linkifyFamilyNames(entry.person)}</div>`
     : '';
 
-  // Left pane: Long description
-  leftPane.className = 'modal-left-pane modal-pane-text';
-  leftPane.innerHTML = `
+  // Left pane: Space for photos with Samsung-style carousel
+  const photos = entry.photos && entry.photos.length > 0
+    ? entry.photos
+    : [{ url: null, caption: entry.title, detail: 'Fotografická příloha k období' }];
+
+  leftPane.className = 'modal-left-pane modal-pane-media';
+  leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, entry.title);
+  wireSamsungCarousel(leftPane, photos);
+
+  // Right pane: Long description
+  rightPane.className = 'modal-right-pane modal-pane-text';
+  rightPane.innerHTML = `
     <div class="modal-text-scroll">
       <div class="archive-meta">${entry[timeKey] || ''}</div>
       <h2 class="modal-main-title">${entry.title}</h2>
@@ -425,16 +593,7 @@ function openTimelineOverlay(entry, timeKey = 'year') {
     </div>
   `;
 
-  // Right pane: Space for photos with Samsung-style carousel
-  const photos = entry.photos && entry.photos.length > 0
-    ? entry.photos
-    : [{ url: null, caption: entry.title, detail: 'Fotografická příloha k období' }];
-
-  rightPane.className = 'modal-right-pane modal-pane-media';
-  rightPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, entry.title);
-
-  wireSamsungCarousel(rightPane, photos);
-  leftPane.querySelector('.modal-close-action')?.addEventListener('click', closeUniversalModal);
+  rightPane.querySelector('.modal-close-action')?.addEventListener('click', closeUniversalModal);
 
   backdrop.classList.add('open');
   backdrop.setAttribute('aria-hidden', 'false');
@@ -446,50 +605,66 @@ function openTimelineOverlay(entry, timeKey = 'year') {
 // - Pictures: Main photo + Samsung gallery thumbnail strip below on the LEFT, description on the RIGHT
 function openMediaGalleryOverlay(item) {
   const backdrop = document.getElementById('universal-modal');
+  const modalWindow = backdrop?.querySelector('.modal-window');
   const leftPane = document.getElementById('modal-left-pane');
   const rightPane = document.getElementById('modal-right-pane');
-  if (!backdrop || !leftPane || !rightPane) return;
+  if (!backdrop || !modalWindow || !leftPane || !rightPane) return;
 
+  modalWindow.classList.remove('modal-single-pane');
   leftPane.className = 'modal-left-pane modal-pane-media';
   rightPane.className = 'modal-right-pane modal-pane-details';
 
   if (item.mediaType === 'pdf') {
     const totalPages = item.pageCount || 4;
-    leftPane.innerHTML = `
-      <div class="pdf-viewer-widget" data-total-pages="${totalPages}">
-        <div class="pdf-toolbar">
-          <span class="pdf-filename">📄 ${item.fileLabel || 'archivni_dokument.pdf'}</span>
-          <div class="pdf-controls">
-            <button type="button" class="pdf-nav-btn" data-dir="-1" title="Předchozí strana">◀</button>
-            <span class="pdf-page-indicator">Strana <strong id="pdf-curr-page">1</strong> / ${totalPages}</span>
-            <button type="button" class="pdf-nav-btn" data-dir="1" title="Další strana">▶</button>
+    if (item.pdfUrl) {
+      leftPane.innerHTML = `
+        <div class="pdf-viewer-widget">
+          <div class="pdf-toolbar">
+            <span class="pdf-filename">📄 ${item.fileLabel || item.title}</span>
+            <div class="pdf-controls">
+              <a href="${item.pdfUrl}" target="_blank" rel="noopener" class="pdf-nav-btn" style="text-decoration:none;">Otevřít PDF v novém okně ↗</a>
+            </div>
           </div>
+          <iframe src="${item.pdfUrl}" title="${item.title}" style="width:100%; flex:1; border:none; background:#232a32;"></iframe>
         </div>
-        <div class="pdf-page-canvas" id="pdf-page-canvas">
-          <div class="pdf-paper-sheet">
-            <div class="pdf-sheet-header">${item.title}</div>
-            <div class="pdf-sheet-meta">${item.author} • ${item.date}</div>
-            <div class="pdf-sheet-divider"></div>
-            <p class="pdf-sheet-excerpt" id="pdf-sheet-excerpt">${item.transcription}</p>
-            <div class="pdf-sheet-placeholder-note">
-              [ Interaktivní náhled PDF dokumentu – strana <span id="pdf-sheet-num">1</span> z ${totalPages} ]
+      `;
+    } else {
+      leftPane.innerHTML = `
+        <div class="pdf-viewer-widget" data-total-pages="${totalPages}">
+          <div class="pdf-toolbar">
+            <span class="pdf-filename">📄 ${item.fileLabel || 'archivni_dokument.pdf'}</span>
+            <div class="pdf-controls">
+              <button type="button" class="pdf-nav-btn" data-dir="-1" title="Předchozí strana">◀</button>
+              <span class="pdf-page-indicator">Strana <strong id="pdf-curr-page">1</strong> / ${totalPages}</span>
+              <button type="button" class="pdf-nav-btn" data-dir="1" title="Další strana">▶</button>
+            </div>
+          </div>
+          <div class="pdf-page-canvas" id="pdf-page-canvas">
+            <div class="pdf-paper-sheet">
+              <div class="pdf-sheet-header">${item.title}</div>
+              <div class="pdf-sheet-meta">${item.author} • ${item.date}</div>
+              <div class="pdf-sheet-divider"></div>
+              <p class="pdf-sheet-excerpt" id="pdf-sheet-excerpt">${item.transcription || item.description}</p>
+              <div class="pdf-sheet-placeholder-note">
+                [ Interaktivní náhled PDF dokumentu – strana <span id="pdf-sheet-num">1</span> z ${totalPages} ]
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
 
-    let currentPage = 1;
-    leftPane.querySelectorAll('.pdf-nav-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const dir = parseInt(btn.getAttribute('data-dir'), 10);
-        currentPage = Math.max(1, Math.min(totalPages, currentPage + dir));
-        const currEl = leftPane.querySelector('#pdf-curr-page');
-        const numEl = leftPane.querySelector('#pdf-sheet-num');
-        if (currEl) currEl.textContent = String(currentPage);
-        if (numEl) numEl.textContent = String(currentPage);
+      let currentPage = 1;
+      leftPane.querySelectorAll('.pdf-nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const dir = parseInt(btn.getAttribute('data-dir'), 10);
+          currentPage = Math.max(1, Math.min(totalPages, currentPage + dir));
+          const currEl = leftPane.querySelector('#pdf-curr-page');
+          const numEl = leftPane.querySelector('#pdf-sheet-num');
+          if (currEl) currEl.textContent = String(currentPage);
+          if (numEl) numEl.textContent = String(currentPage);
+        });
       });
-    });
+    }
 
     rightPane.innerHTML = buildMediaDetailsRightHtml(item, false);
   } else if (item.mediaType === 'audio') {
@@ -535,10 +710,6 @@ function buildMediaDetailsRightHtml(item, includePlayableAudio) {
       <h2 class="modal-main-title">${item.title}</h2>
       <p class="modal-desc-text">${linkifyFamilyNames(item.description)}</p>
       ${audioPlayerBlock}
-      <div class="transcription-box">
-        <strong>Přepis / Poznámka k archiválii:</strong>
-        <p style="margin-top:0.35rem;">${linkifyFamilyNames(item.transcription)}</p>
-      </div>
     </div>
     <div class="modal-footer-bar">
       <button type="button" class="btn btn-primary modal-close-action">Zavřít náhled</button>
