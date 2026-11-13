@@ -296,8 +296,8 @@ function renderPagesTab(ws) {
           ${renderTextField('Podtitulek pod názvem', 'global.brandSubtitle', g.brandSubtitle)}
         </div>
         <div class="cms-grid-3">
-          ${renderTextField('Odkaz 1 (Rodokmen)', 'global.navTree', g.navTree)}
-          ${renderTextField('Odkaz 2 (Úvod)', 'global.navHome', g.navHome)}
+          ${renderTextField('Odkaz 1 (Úvod)', 'global.navHome', g.navHome)}
+          ${renderTextField('Odkaz 2 (Rodokmen)', 'global.navTree', g.navTree)}
           ${renderTextField('Odkaz 3 (Historie lékárny)', 'global.navPharmacy', g.navPharmacy)}
           ${renderTextField('Odkaz 4 (Václav Pokorný)', 'global.navVaclav', g.navVaclav)}
           ${renderTextField('Odkaz 5 (Archiv)', 'global.navArchive', g.navArchive)}
