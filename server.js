@@ -768,7 +768,31 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Server Pokorní z Příbora běží na http://localhost:${PORT}`);
-  console.log(`CMS Administrace: http://localhost:${PORT}/admin.html (výchozí heslo: pribor1756)`);
-});
+function startServerOnAvailablePort(initialPort, maxRetries = 20) {
+  let currentPort = Number(initialPort) || 3000;
+  let attempts = 0;
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE' && attempts < maxRetries) {
+      attempts++;
+      const nextPort = currentPort + 1;
+      console.warn(`[INFO] Port ${currentPort} je již obsazen jiným procesem. Zkouším port ${nextPort}...`);
+      currentPort = nextPort;
+      setTimeout(() => {
+        server.listen(currentPort);
+      }, 100);
+    } else {
+      console.error('Chyba při spouštění serveru:', err.message);
+      process.exit(1);
+    }
+  });
+
+  server.on('listening', () => {
+    console.log(`Server Pokorní z Příbora běží na http://localhost:${currentPort}`);
+    console.log(`CMS Administrace: http://localhost:${currentPort}/admin.html (výchozí heslo: pribor1756)`);
+  });
+
+  server.listen(currentPort);
+}
+
+startServerOnAvailablePort(PORT);

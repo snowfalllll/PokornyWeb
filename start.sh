@@ -9,6 +9,13 @@ echo "  Výchozí heslo:    pribor1756"
 echo "============================================================"
 echo ""
 
+# Ukončit případnou starší instanci server.js běžící na pozadí
+if pgrep -f "node server.js" >/dev/null 2>&1; then
+  echo "[INFO] Ukončuji předchozí běžící instanci serveru (node server.js)..."
+  pkill -f "node server.js" 2>/dev/null || true
+  sleep 0.5
+fi
+
 if ! command -v node >/dev/null 2>&1; then
   echo "[INFO] Node.js nebyl nalezen. Pokouším se nainstalovat Node.js..."
   if command -v dnf >/dev/null 2>&1; then
