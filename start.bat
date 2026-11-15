@@ -13,9 +13,32 @@ echo.
 
 where node >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [CHYBA] Node.js nebyl nalezen. Nainstalujte prosim Node.js z https://nodejs.org/
-    pause
-    exit /b 1
+    echo [INFO] Node.js nebyl nalezen. Pokousim se automaticky nainstalovat Node.js LTS...
+    where winget >nul 2>nul
+    if %errorlevel% equ 0 (
+        winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+        set "PATH=%PATH%;%ProgramFiles%\nodejs;%APPDATA%\npm"
+    ) else (
+        echo [INFO] Stahuji instalator Node.js LTS pomoci PowerShellu...
+        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+          "$url = 'https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi'; " ^
+          "$out = Join-Path $env:TEMP 'nodejs-lts.msi'; " ^
+          "Invoke-WebRequest -Uri $url -OutFile $out; " ^
+          "Start-Process msiexec.exe -Wait -ArgumentList '/i', $out, '/passive', '/norestart'"
+        set "PATH=%PATH%;%ProgramFiles%\nodejs"
+    )
+)
+
+where node >nul 2>nul
+if %errorlevel% neq 0 (
+    if exist "%ProgramFiles%\nodejs\node.exe" (
+        set "PATH=%PATH%;%ProgramFiles%\nodejs"
+    ) else (
+        echo [CHYBA] Automaticka instalace Node.js se nezdarila nebo vyzaduje restart okna.
+        echo Nainstalujte prosim Node.js z https://nodejs.org/ a spustte start.bat znovu.
+        pause
+        exit /b 1
+    )
 )
 
 start "" "http://localhost:3000"
