@@ -1910,10 +1910,11 @@ h1, h2, h3, h4 {
   border-top: 3.5px solid var(--accent-green);
   border-radius: 5px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
-  width: 215px;
+  width: 280px;
   transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.18s ease;
-  overflow: hidden;
+  overflow: visible;
   text-align: left;
+  position: relative;
 }
 
 .tree-person-card.branch-pharmacist {
@@ -1987,12 +1988,12 @@ h1, h2, h3, h4 {
 }
 
 .tree-person-quickdates {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   color: var(--text-secondary);
-  margin-top: 0.2rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-top: 0.22rem;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .tree-expand-badge {

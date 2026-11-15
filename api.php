@@ -1,11 +1,11 @@
 <?php
 /**
- * Pokorní z Příbora — CMS Backend API (pro standardní český PHP webhosting: Wedos, Forpsi, Active24, Webglobe atd.)
+ * Pokorní z Příbora — CMS Backend API (pro standardní český PHP webhosting)
  * Zajišťuje:
- * - Přihlášení heslem (SHA-256 hash v data/admin-config.json) + ochrana proti hádání hesel (Brute-Force Rate Limit)
+ * - Přihlášení heslem (SHA-256 hash v data/admin-config.json) + Brute-Force Rate Limit
  * - CSRF ochrana pro všechny změnové požadavky (X-CSRF-Token)
- * - Ukládání obsahu webu do data/content.js a data/site-data.json + automatické zálohy v data/backups/
- * - Bezpečné nahrávání a mazání souborů (kontrola přípony i skutečného MIME typu přes finfo) ve složce uploads/
+ * - Pojmenovaná historie uložení a obnovitelné zálohy v data/backups/ (backups-index.json)
+ * - Správa složek a souborů ve složce uploads/ (nahrávání přímo do složek, přesouvání, vytváření a mazání složek)
  */
 
 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
@@ -26,6 +26,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 $baseDir = __DIR__;
 $dataDir = $baseDir . '/data';
 $backupsDir = $dataDir . '/backups';
+$backupsIndexFile = $backupsDir . '/backups-index.json';
 $uploadsDir = $baseDir . '/uploads';
 $uschovnaDir = $baseDir . '/uschovna';
 $configFile = $dataDir . '/admin-config.json';
@@ -38,7 +39,6 @@ if (!is_dir($dataDir)) @mkdir($dataDir, 0755, true);
 if (!is_dir($backupsDir)) @mkdir($backupsDir, 0755, true);
 if (!is_dir($uploadsDir)) @mkdir($uploadsDir, 0755, true);
 
-// Výchozí heslo: "pribor1756"
 $defaultPasswordHash = hash('sha256', 'pribor1756');
 if (!file_exists($configFile)) {
     file_put_contents($configFile, json_encode([
@@ -66,7 +66,7 @@ function getClientIp() {
 function checkRateLimit($attemptsFile) {
     $ip = getClientIp();
     $now = time();
-    $windowSeconds = 15 * 60; // 15 minut
+    $windowSeconds = 15 * 60;
     $maxAttempts = 5;
 
     $data = [];
@@ -75,7 +75,6 @@ function checkRateLimit($attemptsFile) {
         if (is_array($parsed)) $data = $parsed;
     }
 
-    // Vyčistit staré záznamy
     foreach ($data as $k => $entry) {
         if (!isset($entry['firstAttempt']) || ($now - $entry['firstAttempt']) > $windowSeconds) {
             unset($data[$k]);
@@ -139,24 +138,54 @@ function requireAuthAndCsrf() {
     }
 }
 
-function listMediaFiles($uploadsDir, $uschovnaDir) {
+function sanitizeSegment($str) {
+    $safe = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', (string)$str);
+    if (!$safe) $safe = (string)$str;
+    $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '-', $safe);
+    return trim($safe, '-');
+}
+
+function normalizeUploadFolder($folderInput) {
+    $raw = trim(str_replace('\\', '/', (string)$folderInput), '/');
+    if ($raw === '' || $raw === 'uploads') return 'uploads';
+    $parts = array_values(array_filter(explode('/', $raw)));
+    if (isset($parts[0]) && $parts[0] === 'uploads') {
+        array_shift($parts);
+    }
+    $clean = [];
+    foreach ($parts as $p) {
+        $s = sanitizeSegment($p);
+        if ($s !== '') $clean[] = $s;
+    }
+    return count($clean) > 0 ? 'uploads/' . implode('/', $clean) : 'uploads';
+}
+
+function listMediaAndFolders($uploadsDir, $uschovnaDir) {
     $files = [];
-    $scanFolder = function($dirPath, $urlPrefix) use (&$files) {
+    $folders = ['uploads'];
+
+    $scanRecursive = function($dirPath, $relPrefix, $isUploadsTree) use (&$files, &$folders, &$scanRecursive) {
         if (!is_dir($dirPath)) return;
         foreach (scandir($dirPath) as $entry) {
             if ($entry === '.' || $entry === '..' || $entry[0] === '.') continue;
             $full = $dirPath . '/' . $entry;
-            if (is_file($full)) {
+            $relPath = $relPrefix . '/' . $entry;
+            if (is_dir($full)) {
+                if ($isUploadsTree) {
+                    $folders[] = $relPath;
+                }
+                $scanRecursive($full, $relPath, $isUploadsTree);
+            } elseif (is_file($full)) {
                 $ext = strtolower(pathinfo($entry, PATHINFO_EXTENSION));
                 $type = 'other';
-                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) $type = 'image';
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'])) $type = 'image';
                 elseif ($ext === 'pdf') $type = 'pdf';
                 elseif (in_array($ext, ['mp3', 'wav', 'ogg', 'm4a', 'wma', 'flac'])) $type = 'audio';
 
                 $files[] = [
                     'name' => $entry,
-                    'path' => $urlPrefix . '/' . $entry,
-                    'folder' => $urlPrefix,
+                    'path' => $relPath,
+                    'folder' => $relPrefix,
                     'type' => $type,
                     'size' => filesize($full),
                     'mtime' => filemtime($full)
@@ -164,13 +193,138 @@ function listMediaFiles($uploadsDir, $uschovnaDir) {
             }
         }
     };
-    $scanFolder($uploadsDir, 'uploads');
-    $scanFolder($uschovnaDir, 'uschovna');
+
+    $scanRecursive($uploadsDir, 'uploads', true);
+    $scanRecursive($uschovnaDir, 'uschovna', false);
+    if (is_dir($uschovnaDir)) {
+        $folders[] = 'uschovna';
+    }
     usort($files, function($a, $b) { return $b['mtime'] - $a['mtime']; });
-    return $files;
+    return ['files' => $files, 'folders' => $folders];
+}
+
+function loadBackupsIndex($backupsDir, $backupsIndexFile) {
+    $list = [];
+    if (file_exists($backupsIndexFile)) {
+        $parsed = @json_decode(@file_get_contents($backupsIndexFile), true);
+        if (is_array($parsed)) $list = $parsed;
+    }
+
+    $known = [];
+    foreach ($list as $b) {
+        if (isset($b['filename'])) $known[$b['filename']] = true;
+    }
+
+    if (is_dir($backupsDir)) {
+        foreach (scandir($backupsDir) as $f) {
+            if (( strpos($f, 'content-backup-') === 0 || strpos($f, 'save-') === 0 ) &&
+                ( substr($f, -5) === '.json' || substr($f, -3) === '.js' )) {
+                if (!isset($known[$f])) {
+                    $mtime = filemtime($backupsDir . '/' . $f);
+                    $iso = date('c', $mtime);
+                    $list[] = [
+                        'id' => 'bkp-' . preg_replace('/[^a-zA-Z0-9_-]/', '', $f),
+                        'name' => 'Automatická záloha (' . date('d. m. Y H:i', $mtime) . ')',
+                        'createdAt' => $iso,
+                        'type' => 'published',
+                        'filename' => $f
+                    ];
+                }
+            }
+        }
+    }
+
+    $filtered = [];
+    foreach ($list as $b) {
+        if (isset($b['filename']) && file_exists($backupsDir . '/' . $b['filename'])) {
+            $filtered[] = $b;
+        }
+    }
+    usort($filtered, function($a, $b) {
+        return strtotime($b['createdAt']) - strtotime($a['createdAt']);
+    });
+    return $filtered;
+}
+
+function saveBackupsIndex($backupsIndexFile, $list) {
+    @file_put_contents($backupsIndexFile, json_encode($list, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+}
+
+function createBackupSnapshot($backupsDir, $backupsIndexFile, $siteData, $customName, $saveType = 'manual') {
+    $iso = date('c');
+    $stamp = date('Y-m-d_H-i-s');
+    $id = 'save-' . $stamp . '-' . substr(bin2hex(random_bytes(3)), 0, 4);
+    $filename = $id . '.json';
+    $defaultLabel = ($saveType === 'published')
+        ? 'Publikovaná verze (' . date('d. m. Y H:i') . ')'
+        : 'Rozpracované uložení (' . date('d. m. Y H:i') . ')';
+    $name = (isset($customName) && trim((string)$customName) !== '') ? trim((string)$customName) : $defaultLabel;
+
+    $pretty = json_encode($siteData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    @file_put_contents($backupsDir . '/' . $filename, $pretty, LOCK_EX);
+
+    $list = loadBackupsIndex($backupsDir, $backupsIndexFile);
+    array_unshift($list, [
+        'id' => $id,
+        'name' => $name,
+        'createdAt' => $iso,
+        'type' => $saveType,
+        'filename' => $filename
+    ]);
+
+    while (count($list) > 40) {
+        $removed = array_pop($list);
+        if (isset($removed['filename'])) {
+            @unlink($backupsDir . '/' . $removed['filename']);
+        }
+    }
+    saveBackupsIndex($backupsIndexFile, $list);
+    return ['entry' => $list[0], 'backups' => $list];
+}
+
+function readBackupSnapshotData($backupsDir, $entry) {
+    $full = $backupsDir . '/' . $entry['filename'];
+    if (!file_exists($full)) return null;
+    $raw = @file_get_contents($full);
+    if (substr($entry['filename'], -3) === '.js') {
+        $cleaned = preg_replace('/^\s*const\s+SITE_DATA\s*=\s*/', '', $raw);
+        $cleaned = preg_replace('/;\s*$/', '', $cleaned);
+        return @json_decode($cleaned, true);
+    }
+    return @json_decode($raw, true);
 }
 
 $action = isset($_GET['action']) ? $_GET['action'] : 'status';
+
+if ($action === 'admin_bundle') {
+    if (!isAuthenticated()) {
+        http_response_code(401);
+        header('Content-Type: application/javascript; charset=utf-8');
+        echo "/* 401 Unauthorized: CMS bundle requires login at /admin.html */\n";
+        exit;
+    }
+    header('Content-Type: application/javascript; charset=utf-8');
+    $adminJsPath = $baseDir . '/js/admin.js';
+    if (file_exists($adminJsPath)) {
+        readfile($adminJsPath);
+    }
+    exit;
+}
+
+if ($action === 'admin_css') {
+    if (!isAuthenticated()) {
+        http_response_code(401);
+        header('Content-Type: text/css; charset=utf-8');
+        echo "/* 401 Unauthorized */\n";
+        exit;
+    }
+    header('Content-Type: text/css; charset=utf-8');
+    $adminCssPath = $baseDir . '/css/admin.css';
+    if (file_exists($adminCssPath)) {
+        readfile($adminCssPath);
+    }
+    exit;
+}
 
 if ($action === 'status') {
     $authed = isAuthenticated();
@@ -183,13 +337,18 @@ if ($action === 'status') {
             $draftData = $parsedDraft;
         }
     }
+    $media = $authed ? listMediaAndFolders($uploadsDir, $uschovnaDir) : ['files' => [], 'folders' => []];
+    $backups = $authed ? loadBackupsIndex($backupsDir, $backupsIndexFile) : [];
     echo json_encode([
         'ok' => true,
         'authenticated' => $authed,
         'csrfToken' => $authed ? getCsrfToken() : null,
         'hasDraft' => $hasDraft,
         'draftData' => $draftData,
-        'files' => $authed ? listMediaFiles($uploadsDir, $uschovnaDir) : []
+        'files' => $media['files'],
+        'folders' => $media['folders'],
+        'backups' => $backups,
+        'lastSavedAt' => isset($backups[0]['createdAt']) ? $backups[0]['createdAt'] : null
     ]);
     exit;
 }
@@ -213,13 +372,18 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $draftData = $parsedDraft;
             }
         }
+        $media = listMediaAndFolders($uploadsDir, $uschovnaDir);
+        $backups = loadBackupsIndex($backupsDir, $backupsIndexFile);
         echo json_encode([
             'ok' => true,
             'authenticated' => true,
             'csrfToken' => getCsrfToken(),
             'hasDraft' => $hasDraft,
             'draftData' => $draftData,
-            'files' => listMediaFiles($uploadsDir, $uschovnaDir)
+            'files' => $media['files'],
+            'folders' => $media['folders'],
+            'backups' => $backups,
+            'lastSavedAt' => isset($backups[0]['createdAt']) ? $backups[0]['createdAt'] : null
         ]);
     } else {
         recordFailedLogin($attemptsFile, $attemptsData);
@@ -238,9 +402,7 @@ if ($action === 'logout') {
 
 if ($action === 'save_draft' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     requireAuthAndCsrf();
-    $rawBody = file_get_contents('php://input');
-    $payload = json_decode($rawBody, true);
-
+    $payload = json_decode(file_get_contents('php://input'), true);
     if (!is_array($payload) || !isset($payload['siteData']) || !is_array($payload['siteData'])) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'Neplatný formát dat konceptu.']);
@@ -249,25 +411,27 @@ if ($action === 'save_draft' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $prettyJson = json_encode($payload['siteData'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $okDraft = @file_put_contents($draftJsonFile, $prettyJson, LOCK_EX);
-
     if ($okDraft === false) {
         http_response_code(500);
         echo json_encode(['ok' => false, 'error' => 'Nepodařilo se uložit koncept do data/draft-data.json.']);
         exit;
     }
 
+    $saveName = isset($payload['saveName']) ? $payload['saveName'] : '';
+    $snap = createBackupSnapshot($backupsDir, $backupsIndexFile, $payload['siteData'], $saveName, 'draft');
+
     echo json_encode([
         'ok' => true,
-        'savedDraftAt' => date('c')
+        'savedDraftAt' => $snap['entry']['createdAt'],
+        'backupEntry' => $snap['entry'],
+        'backups' => $snap['backups']
     ]);
     exit;
 }
 
 if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     requireAuthAndCsrf();
-    $rawBody = file_get_contents('php://input');
-    $payload = json_decode($rawBody, true);
-
+    $payload = json_decode(file_get_contents('php://input'), true);
     if (!is_array($payload) || !isset($payload['siteData']) || !is_array($payload['siteData'])) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'Neplatný formát dat.']);
@@ -275,43 +439,188 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $siteData = $payload['siteData'];
-
-    // Vytvořit automatickou zálohu před přepsáním
-    if (file_exists($contentJsFile)) {
-        $backupName = 'content-backup-' . date('Y-m-d_H-i-s') . '.js';
-        @copy($contentJsFile, $backupsDir . '/' . $backupName);
-
-        // Ponechat posledních 15 záloh
-        $existingBackups = glob($backupsDir . '/content-backup-*.js');
-        if (is_array($existingBackups) && count($existingBackups) > 15) {
-            sort($existingBackups);
-            $toDelete = array_slice($existingBackups, 0, count($existingBackups) - 15);
-            foreach ($toDelete as $oldFile) {
-                @unlink($oldFile);
-            }
-        }
-    }
-
     $prettyJson = json_encode($siteData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $jsOutput = "const SITE_DATA = " . $prettyJson . ";\n";
 
     $okJs = @file_put_contents($contentJsFile, $jsOutput, LOCK_EX);
-    $okJson = @file_put_contents($siteJsonFile, $prettyJson, LOCK_EX);
+    @file_put_contents($siteJsonFile, $prettyJson, LOCK_EX);
 
     if ($okJs === false) {
         http_response_code(500);
-        echo json_encode(['ok' => false, 'error' => 'Nepodařilo se zapsat do data/content.js. Zkontrolujte oprávnění složky data/.']);
+        echo json_encode(['ok' => false, 'error' => 'Nepodařilo se zapsat do data/content.js.']);
         exit;
     }
 
-    // Po úspěšném publikování smazat rozpracovaný koncept (nyní je již publikován naživo)
     if (file_exists($draftJsonFile)) {
         @unlink($draftJsonFile);
     }
 
+    $saveName = isset($payload['saveName']) ? $payload['saveName'] : '';
+    $snap = createBackupSnapshot($backupsDir, $backupsIndexFile, $siteData, $saveName, 'published');
+
     echo json_encode([
         'ok' => true,
-        'savedAt' => date('c')
+        'savedAt' => $snap['entry']['createdAt'],
+        'backupEntry' => $snap['entry'],
+        'backups' => $snap['backups']
+    ]);
+    exit;
+}
+
+if ($action === 'list_backups') {
+    requireAuthAndCsrf();
+    echo json_encode([
+        'ok' => true,
+        'backups' => loadBackupsIndex($backupsDir, $backupsIndexFile)
+    ]);
+    exit;
+}
+
+if ($action === 'rename_backup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireAuthAndCsrf();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $id = isset($body['id']) ? (string)$body['id'] : '';
+    $newName = isset($body['name']) ? trim((string)$body['name']) : '';
+    $list = loadBackupsIndex($backupsDir, $backupsIndexFile);
+    $found = false;
+    foreach ($list as &$b) {
+        if ($b['id'] === $id) {
+            if ($newName !== '') $b['name'] = $newName;
+            $found = true;
+            break;
+        }
+    }
+    if (!$found) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'error' => 'Záloha nebyla nalezena.']);
+        exit;
+    }
+    saveBackupsIndex($backupsIndexFile, $list);
+    echo json_encode(['ok' => true, 'backups' => $list]);
+    exit;
+}
+
+if ($action === 'restore_backup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireAuthAndCsrf();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $id = isset($body['id']) ? (string)$body['id'] : '';
+    $list = loadBackupsIndex($backupsDir, $backupsIndexFile);
+    $target = null;
+    foreach ($list as $b) {
+        if ($b['id'] === $id) { $target = $b; break; }
+    }
+    if (!$target) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'error' => 'Záloha nebyla nalezena.']);
+        exit;
+    }
+    $siteData = readBackupSnapshotData($backupsDir, $target);
+    if (!is_array($siteData)) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Nelze načíst data ze souboru zálohy.']);
+        exit;
+    }
+    @file_put_contents($draftJsonFile, json_encode($siteData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    echo json_encode(['ok' => true, 'siteData' => $siteData, 'restoredFrom' => $target]);
+    exit;
+}
+
+if ($action === 'delete_backup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireAuthAndCsrf();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $id = isset($body['id']) ? (string)$body['id'] : '';
+    $list = loadBackupsIndex($backupsDir, $backupsIndexFile);
+    $newList = [];
+    foreach ($list as $b) {
+        if ($b['id'] === $id) {
+            if (isset($b['filename'])) @unlink($backupsDir . '/' . $b['filename']);
+        } else {
+            $newList[] = $b;
+        }
+    }
+    saveBackupsIndex($backupsIndexFile, $newList);
+    echo json_encode(['ok' => true, 'backups' => $newList]);
+    exit;
+}
+
+if ($action === 'create_folder' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireAuthAndCsrf();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $parentRel = normalizeUploadFolder(isset($body['parentFolder']) ? $body['parentFolder'] : 'uploads');
+    $cleanName = sanitizeSegment(isset($body['folderName']) ? $body['folderName'] : '');
+    if ($cleanName === '') {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'Zadejte platný název složky.']);
+        exit;
+    }
+    $newFolderRel = $parentRel . '/' . $cleanName;
+    $fullDir = $baseDir . '/' . $newFolderRel;
+    if (!is_dir($fullDir)) {
+        @mkdir($fullDir, 0755, true);
+    }
+    $media = listMediaAndFolders($uploadsDir, $uschovnaDir);
+    echo json_encode([
+        'ok' => true,
+        'createdFolder' => $newFolderRel,
+        'files' => $media['files'],
+        'folders' => $media['folders']
+    ]);
+    exit;
+}
+
+if ($action === 'delete_folder' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireAuthAndCsrf();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $folderRel = normalizeUploadFolder(isset($body['folderPath']) ? $body['folderPath'] : '');
+    if ($folderRel === 'uploads') {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'Kořenovou složku uploads nelze smazat.']);
+        exit;
+    }
+    $fullDir = $baseDir . '/' . $folderRel;
+    if (is_dir($fullDir)) {
+        $items = array_diff(scandir($fullDir), ['.', '..']);
+        if (count($items) > 0) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Složka není prázdná. Nejprve přesuňte nebo smažte soubory uvnitř.']);
+            exit;
+        }
+        @rmdir($fullDir);
+    }
+    $media = listMediaAndFolders($uploadsDir, $uschovnaDir);
+    echo json_encode(['ok' => true, 'files' => $media['files'], 'folders' => $media['folders']]);
+    exit;
+}
+
+if ($action === 'move_file' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireAuthAndCsrf();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $fromRel = isset($body['fromPath']) ? str_replace('\\', '/', (string)$body['fromPath']) : '';
+    $targetFolderRel = normalizeUploadFolder(isset($body['targetFolder']) ? $body['targetFolder'] : 'uploads');
+    if (strpos($fromRel, 'uploads/') !== 0 || strpos($fromRel, '..') !== false) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'Přesouvat lze pouze soubory ve složce uploads/.']);
+        exit;
+    }
+    $srcFull = $baseDir . '/' . $fromRel;
+    if (!is_file($srcFull)) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'error' => 'Zdrojový soubor neexistuje.']);
+        exit;
+    }
+    $destDirFull = $baseDir . '/' . $targetFolderRel;
+    if (!is_dir($destDirFull)) @mkdir($destDirFull, 0755, true);
+    $fileName = basename($srcFull);
+    $destFull = $destDirFull . '/' . $fileName;
+    if ($srcFull !== $destFull) {
+        @rename($srcFull, $destFull);
+    }
+    $media = listMediaAndFolders($uploadsDir, $uschovnaDir);
+    echo json_encode([
+        'ok' => true,
+        'newPath' => $targetFolderRel . '/' . $fileName,
+        'files' => $media['files'],
+        'folders' => $media['folders']
     ]);
     exit;
 }
@@ -324,63 +633,47 @@ if ($action === 'upload' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    $reqFolder = isset($_POST['folder']) ? $_POST['folder'] : (isset($_GET['folder']) ? $_GET['folder'] : 'uploads');
+    $folderRel = normalizeUploadFolder($reqFolder);
+    $targetDirFull = $baseDir . '/' . $folderRel;
+    if (!is_dir($targetDirFull)) @mkdir($targetDirFull, 0755, true);
+
     $origName = $_FILES['file']['name'];
     $tmpPath = $_FILES['file']['tmp_name'];
     $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-    $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'wma', 'flac'];
+    $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'wma', 'flac'];
     if (!in_array($ext, $allowedExts, true)) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'Nepovolený typ souboru (.' . $ext . ').']);
         exit;
     }
 
-    // Ověření skutečného MIME typu souboru
-    if (function_exists('finfo_open')) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $realMime = finfo_file($finfo, $tmpPath);
-        finfo_close($finfo);
-        $allowedMimePrefixes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'audio/', 'video/x-ms-asf', 'application/octet-stream'];
-        $mimeValid = false;
-        foreach ($allowedMimePrefixes as $prefix) {
-            if (strpos($realMime, $prefix) === 0) {
-                $mimeValid = true;
-                break;
-            }
-        }
-        if (!$mimeValid) {
-            http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => 'Soubor nemá platný multimediální obsah (' . $realMime . ').']);
-            exit;
-        }
-    }
-
-    $baseName = pathinfo($origName, PATHINFO_FILENAME);
-    $safeBase = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $baseName);
-    if (!$safeBase) $safeBase = $baseName;
-    $safeBase = preg_replace('/[^a-zA-Z0-9_-]+/', '-', $safeBase);
-    $safeBase = trim($safeBase, '-');
+    $safeBase = sanitizeSegment(pathinfo($origName, PATHINFO_FILENAME));
     if ($safeBase === '') $safeBase = 'soubor';
 
     $finalName = $safeBase . '.' . $ext;
-    $targetPath = $uploadsDir . '/' . $finalName;
+    $targetPath = $targetDirFull . '/' . $finalName;
     $counter = 1;
     while (file_exists($targetPath)) {
         $finalName = $safeBase . '-' . $counter . '.' . $ext;
-        $targetPath = $uploadsDir . '/' . $finalName;
+        $targetPath = $targetDirFull . '/' . $finalName;
         $counter++;
     }
 
     if (!move_uploaded_file($tmpPath, $targetPath)) {
         http_response_code(500);
-        echo json_encode(['ok' => false, 'error' => 'Nelze uložit nahraný soubor do složky uploads/.']);
+        echo json_encode(['ok' => false, 'error' => 'Nelze uložit nahraný soubor do složky ' . $folderRel . '.']);
         exit;
     }
 
+    $media = listMediaAndFolders($uploadsDir, $uschovnaDir);
     echo json_encode([
         'ok' => true,
-        'path' => 'uploads/' . $finalName,
+        'path' => $folderRel . '/' . $finalName,
+        'folder' => $folderRel,
         'name' => $finalName,
-        'files' => listMediaFiles($uploadsDir, $uschovnaDir)
+        'files' => $media['files'],
+        'folders' => $media['folders']
     ]);
     exit;
 }
@@ -388,7 +681,7 @@ if ($action === 'upload' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($action === 'delete_file' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     requireAuthAndCsrf();
     $body = json_decode(file_get_contents('php://input'), true);
-    $relPath = isset($body['path']) ? (string)$body['path'] : '';
+    $relPath = isset($body['path']) ? str_replace('\\', '/', (string)$body['path']) : '';
 
     if (strpos($relPath, 'uploads/') !== 0 || strpos($relPath, '..') !== false) {
         http_response_code(400);
@@ -401,9 +694,11 @@ if ($action === 'delete_file' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         @unlink($fullPath);
     }
 
+    $media = listMediaAndFolders($uploadsDir, $uschovnaDir);
     echo json_encode([
         'ok' => true,
-        'files' => listMediaFiles($uploadsDir, $uschovnaDir)
+        'files' => $media['files'],
+        'folders' => $media['folders']
     ]);
     exit;
 }

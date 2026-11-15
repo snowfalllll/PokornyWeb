@@ -1,19 +1,64 @@
 document.addEventListener('DOMContentLoaded', () => {
   applyTreeCmsDraftPreviewIfActive();
-  applyTreeGlobalCmsText();
-  initGenealogyTreePage();
+  setupTreeModalEvents();
+  window.treePanZoomApi = setupCanvasPanAndZoom();
+  refreshPageView();
+  bootstrapAuthenticatedTreeCmsIfRequested();
 });
+
+async function bootstrapAuthenticatedTreeCmsIfRequested() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('cms') === '0') {
+    sessionStorage.removeItem('pokorny_cms_mode');
+    return;
+  }
+  const isCmsRequested = params.get('cms') === '1' || sessionStorage.getItem('pokorny_cms_mode') === '1';
+  if (!isCmsRequested) return;
+
+  try {
+    const res = await fetch('api.php?action=status', { credentials: 'same-origin' });
+    const data = await res.json();
+    if (data && data.authenticated) {
+      sessionStorage.setItem('pokorny_cms_mode', '1');
+      window.__POKORNY_CMS_INIT_STATUS__ = data;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'api.php?action=admin_css';
+      document.head.appendChild(link);
+
+      const script = document.createElement('script');
+      script.src = 'api.php?action=admin_bundle';
+      document.body.appendChild(script);
+    } else {
+      sessionStorage.removeItem('pokorny_cms_mode');
+      const pageName = window.location.pathname.split('/').pop() || 'rodokmen.html';
+      window.location.replace(`admin.html?return=${encodeURIComponent(pageName)}`);
+    }
+  } catch (e) {
+    sessionStorage.removeItem('pokorny_cms_mode');
+    const pageName = window.location.pathname.split('/').pop() || 'rodokmen.html';
+    window.location.replace(`admin.html?return=${encodeURIComponent(pageName)}`);
+  }
+}
+
+const PERSON_MAP = new Map();
+let panZoomController = null;
+
+window.refreshPageView = function refreshPageView() {
+  applyTreeGlobalCmsText();
+  renderGenealogyTreeDom();
+  if (typeof window.onCmsAfterPageRender === 'function') {
+    window.onCmsAfterPageRender();
+  }
+};
 
 function applyTreeCmsDraftPreviewIfActive() {
   const params = new URLSearchParams(window.location.search);
+  const isCmsMode = params.get('cms') === '1' || sessionStorage.getItem('pokorny_cms_mode') === '1';
   const isPreviewUrl = params.get('cms_preview') === '1';
   const isPreviewSession = sessionStorage.getItem('pokorny_cms_preview_active') === '1';
 
-  if (!isPreviewUrl && !isPreviewSession) return;
-
-  if (isPreviewUrl) {
-    sessionStorage.setItem('pokorny_cms_preview_active', '1');
-  }
+  if (!isCmsMode && !isPreviewUrl && !isPreviewSession) return;
 
   try {
     const rawDraft = localStorage.getItem('pokorny_cms_draft_data');
@@ -24,39 +69,6 @@ function applyTreeCmsDraftPreviewIfActive() {
       }
     }
   } catch (e) {}
-
-  if (!document.getElementById('cms-live-preview-banner')) {
-    const banner = document.createElement('div');
-    banner.id = 'cms-live-preview-banner';
-    banner.setAttribute('data-ui-panel', 'true');
-    banner.style.cssText = 'background:#b86b14; color:#fff; padding:0.4rem 1.25rem; font-family:Inter,sans-serif; font-size:0.8rem; font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:1rem; z-index:9999; position:relative;';
-    banner.innerHTML = `
-      <span>🔍 <strong>REŽIM NÁHLEDU Z CMS:</strong> Prohlížíte si nepublikovanou pracovní verzi rodokmenu.</span>
-      <div style="display:flex; gap:0.5rem; align-items:center;">
-        <button type="button" id="btn-exit-cms-preview" style="background:#181d23; color:#fff; border:none; padding:0.2rem 0.6rem; border-radius:4px; cursor:pointer; font-weight:600; font-size:0.76rem;">Ukončit náhled (zobrazit veřejný web)</button>
-      </div>
-    `;
-    document.body.prepend(banner);
-
-    document.getElementById('btn-exit-cms-preview')?.addEventListener('click', () => {
-      sessionStorage.removeItem('pokorny_cms_preview_active');
-      const url = new URL(window.location.href);
-      url.searchParams.delete('cms_preview');
-      window.location.href = url.toString();
-    });
-  }
-
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'pokorny_cms_draft_data' && e.newValue) {
-      try {
-        const updated = JSON.parse(e.newValue);
-        Object.assign(SITE_DATA, updated);
-        PERSON_MAP.clear();
-        applyTreeGlobalCmsText();
-        initGenealogyTreePage();
-      } catch (err) {}
-    }
-  });
 }
 
 function applyTreeGlobalCmsText() {
@@ -65,34 +77,132 @@ function applyTreeGlobalCmsText() {
     const keyPath = el.getAttribute('data-cms');
     const val = keyPath.split('.').reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : undefined), SITE_DATA.pageText);
     if (typeof val === 'string' && val.trim() !== '') {
+      el.setAttribute('data-raw-text', val);
       el.textContent = val;
     }
   });
 }
 
-// Flat map of all people by id for quick lookup when opening overlay modal
-const PERSON_MAP = new Map();
+// ==========================================================================
+// Linkify helper for Tree Descriptions (Markdown links + Family Member links)
+// ==========================================================================
+function looksLikeUrlTree(str) {
+  const s = String(str || '').trim();
+  return /^(https?:\/\/|mailto:|www\.|[a-z0-9-]+\.(cz|com|org|eu|net|info|edu|gov)(\/|$)|\S+\.html\b)/i.test(s);
+}
 
-function indexFamilyTree(node) {
+function normalizeHrefTree(rawUrl) {
+  const s = String(rawUrl || '').trim();
+  if (/^www\./i.test(s)) return 'https://' + s;
+  if (/^[a-z0-9-]+\.(cz|com|org|eu|net|info|edu|gov)(\/|$)/i.test(s) && !/^https?:\/\//i.test(s)) {
+    return 'https://' + s;
+  }
+  return s;
+}
+
+function linkifyTreeText(text, currentPersonId = null) {
+  if (!text) return '';
+  let processed = String(text);
+
+  if (processed.includes('person-inline-link')) {
+    processed = processed.replace(/<a\b[^>]*class="[^"]*person-inline-link[^"]*"[^>]*>(.*?)<\/a>/gi, '$1');
+  }
+
+  const placeholders = [];
+
+  // 1. Markdown links: both [www.e.com](E site) and [E site](https://www.e.com)
+  processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, partA, partB) => {
+    let urlPart = partB.trim();
+    let labelPart = partA.trim();
+    if (looksLikeUrlTree(partA) && !looksLikeUrlTree(partB)) {
+      urlPart = partA.trim();
+      labelPart = partB.trim();
+    }
+    const href = normalizeHrefTree(urlPart);
+    const isExternal = /^https?:\/\//i.test(href);
+    const targetAttr = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
+    const token = `__TREE_LINK_${placeholders.length}__`;
+    placeholders.push(`<a href="${href}" class="person-inline-link markdown-inline-link"${targetAttr}>${labelPart}</a>`);
+    return token;
+  });
+
+  // 2. Family member links (jump directly inside the tree modal)
+  if (Array.isArray(SITE_DATA.personLinks)) {
+    const allMatchers = [];
+    SITE_DATA.personLinks.forEach(entry => {
+      if (entry.id === currentPersonId) return;
+      if (Array.isArray(entry.patterns)) {
+        entry.patterns.forEach(pattern => {
+          if (pattern && pattern.trim()) {
+            allMatchers.push({ pattern: pattern.trim(), id: entry.id });
+          }
+        });
+      }
+    });
+    allMatchers.sort((a, b) => b.pattern.length - a.pattern.length);
+
+    allMatchers.forEach(({ pattern, id }) => {
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'g');
+      processed = processed.replace(regex, (match) => {
+        const token = `__TREE_LINK_${placeholders.length}__`;
+        placeholders.push(
+          `<a href="#person-${id}" data-jump-person="${id}" class="person-inline-link" title="Přejít v rodokmenu na: ${match}">${match}</a>`
+        );
+        return token;
+      });
+    });
+  }
+
+  placeholders.forEach((html, idx) => {
+    processed = processed.replace(`__TREE_LINK_${idx}__`, html);
+  });
+
+  return processed;
+}
+window.linkifyTreeText = linkifyTreeText;
+
+function indexFamilyTree(node, parentId = null) {
   if (!node) return;
+  node._parentId = parentId;
   PERSON_MAP.set(node.id, node);
   if (node.spouse) {
+    node.spouse._isSpouseOf = node.id;
     PERSON_MAP.set(node.spouse.id, node.spouse);
   }
   if (Array.isArray(node.children)) {
-    node.children.forEach(child => indexFamilyTree(child));
+    node.children.forEach(child => indexFamilyTree(child, node.id));
   }
 }
 
-function initGenealogyTreePage() {
+function renderGenealogyTreeDom() {
   const rootEl = document.getElementById('genealogy-root');
   if (!rootEl || !SITE_DATA.familyTree || !SITE_DATA.familyTree.treeRoot) return;
 
-  indexFamilyTree(SITE_DATA.familyTree.treeRoot);
+  PERSON_MAP.clear();
+  indexFamilyTree(SITE_DATA.familyTree.treeRoot, null);
 
-  rootEl.innerHTML = `<ul class="org-ul root-ul">${renderTreeNode(SITE_DATA.familyTree.treeRoot)}</ul>`;
+  // Also render any detached/unconnected nodes in SITE_DATA.familyTree.detachedNodes if created in CMS flowchart mode
+  const detached = Array.isArray(SITE_DATA.familyTree.detachedNodes) ? SITE_DATA.familyTree.detachedNodes : [];
+  detached.forEach(d => indexFamilyTree(d, null));
 
-  // Wire up click on each person card to open the overlay modal
+  const detachedHtml = detached.length > 0
+    ? `
+      <div class="tree-detached-tray" id="tree-detached-tray">
+        <div class="tree-detached-title">Nezařazené osobnosti (přetáhněte bod nahoře pod rodiče nebo k partnerovi):</div>
+        <ul class="org-ul root-ul detached-ul">
+          ${detached.map(node => renderTreeNode(node, true)).join('')}
+        </ul>
+      </div>
+    `
+    : '';
+
+  rootEl.innerHTML = `
+    <svg id="cms-flowchart-svg" class="cms-flowchart-svg" aria-hidden="true"></svg>
+    <ul class="org-ul root-ul">${renderTreeNode(SITE_DATA.familyTree.treeRoot, false)}</ul>
+    ${detachedHtml}
+  `;
+
   rootEl.querySelectorAll('.tree-person-card').forEach(card => {
     const trigger = card.querySelector('.tree-person-trigger');
     trigger.addEventListener('click', (e) => {
@@ -105,63 +215,74 @@ function initGenealogyTreePage() {
     });
   });
 
-  setupTreeModalEvents();
-  const panZoomApi = setupCanvasPanAndZoom();
-
-  // Check if navigated with ?person=<id> from Historie lékárny or Václav Pokorný pages
+  // Check if navigated with ?person=<id>
   const params = new URLSearchParams(window.location.search);
   const targetPersonId = params.get('person');
-  if (targetPersonId && PERSON_MAP.has(targetPersonId)) {
+  if (targetPersonId && PERSON_MAP.has(targetPersonId) && !window._initialPersonHandled) {
+    window._initialPersonHandled = true;
     setTimeout(() => {
       const cardEl = document.getElementById(`person-${targetPersonId}`);
-      if (cardEl) {
+      if (cardEl && window.treePanZoomApi) {
         cardEl.classList.add('selected-person-card');
-        panZoomApi.focusOnElement(cardEl);
+        window.treePanZoomApi.focusOnElement(cardEl);
       }
       openPersonOverlayModal(PERSON_MAP.get(targetPersonId));
     }, 180);
   }
 }
 
-function renderPersonCard(member) {
+function renderPersonCard(member, isDetached = false) {
   const quickDates = member.deathDate && member.deathDate !== '—'
     ? `${member.birthDate} &bull; ${member.deathDate}`
     : `${member.birthDate}`;
 
+  const offsetStyle = (member.cmsOffsetX || member.cmsOffsetY)
+    ? `style="transform: translate(${Math.round(member.cmsOffsetX || 0)}px, ${Math.round(member.cmsOffsetY || 0)}px);" data-offset-x="${member.cmsOffsetX || 0}" data-offset-y="${member.cmsOffsetY || 0}"`
+    : '';
+
   return `
-    <article class="tree-person-card branch-${member.branch}" id="person-${member.id}" data-person-id="${member.id}">
+    <article class="tree-person-card branch-${member.branch || 'family'} ${isDetached ? 'is-detached-card' : ''}" id="person-${member.id}" data-person-id="${member.id}" ${offsetStyle}>
+      <!-- Top connector port (Child Input / Detach from parent) -->
+      <div class="cms-tree-port cms-port-top" data-port="top" data-person-id="${member.id}" title="Horní bod (napojení na rodiče – kliknutím odpojíte)"></div>
+
+      <!-- Side connector port (Spouse link) -->
+      <div class="cms-tree-port cms-port-spouse" data-port="spouse" data-person-id="${member.id}" title="Partnerský bod (přetáhněte na kartu partnera)">⚭</div>
+
       <button type="button" class="tree-person-trigger" title="Zobrazit detail osobnosti: ${member.name}">
         <div class="tree-person-summary">
-          <div class="tree-person-role-tag">${member.role}</div>
+          <div class="tree-person-role-tag">${member.role || `${member.gen || ''}. gen.`}</div>
           <div class="tree-person-name">${member.name}</div>
           <div class="tree-person-quickdates">${quickDates}</div>
         </div>
         <span class="tree-expand-badge" title="Otevřít medailonek">↗</span>
       </button>
+
+      <!-- Bottom connector port (Parent Output -> Drag to child's top port) -->
+      <div class="cms-tree-port cms-port-bottom" data-port="bottom" data-person-id="${member.id}" title="Spodní bod rodiče (přetáhněte na horní bod dítěte)"></div>
     </article>
   `;
 }
 
-function renderTreeNode(node) {
+function renderTreeNode(node, isDetached = false) {
   const hasSpouse = Boolean(node.spouse);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
 
   const nodeGroupHtml = hasSpouse
     ? `
       <div class="tree-couple-group">
-        ${renderPersonCard(node)}
-        <div class="tree-couple-ring" title="Manželský svazek">⚭</div>
-        ${renderPersonCard(node.spouse)}
+        ${renderPersonCard(node, isDetached)}
+        <div class="tree-couple-ring" data-spouse-ring="${node.id}" title="Manželský svazek (v CMS kliknutím rozpojíte)">⚭</div>
+        ${renderPersonCard(node.spouse, false)}
       </div>
     `
-    : `<div class="tree-single-group">${renderPersonCard(node)}</div>`;
+    : `<div class="tree-single-group">${renderPersonCard(node, isDetached)}</div>`;
 
   const childrenHtml = hasChildren
-    ? `<ul class="org-ul">${node.children.map(child => renderTreeNode(child)).join('')}</ul>`
+    ? `<ul class="org-ul">${node.children.map(child => renderTreeNode(child, false)).join('')}</ul>`
     : '';
 
   return `
-    <li class="org-li">
+    <li class="org-li" data-node-li="${node.id}">
       ${nodeGroupHtml}
       ${childrenHtml}
     </li>
@@ -169,7 +290,7 @@ function renderTreeNode(node) {
 }
 
 // ==========================================================================
-// Person Overlay Modal: Left = Photo Carousel (Samsung Gallery style), Right = Title, Dates, Bio
+// Person Overlay Modal: Left = Photo Carousel, Right = Title, Dates, Bio
 // ==========================================================================
 function openPersonOverlayModal(member) {
   const backdrop = document.getElementById('universal-modal');
@@ -177,7 +298,6 @@ function openPersonOverlayModal(member) {
   const rightPane = document.getElementById('modal-right-pane');
   if (!backdrop || !leftPane || !rightPane) return;
 
-  // Highlight active card on tree
   document.querySelectorAll('.tree-person-card').forEach(c => {
     c.classList.toggle('selected-person-card', c.getAttribute('data-person-id') === member.id);
   });
@@ -186,21 +306,16 @@ function openPersonOverlayModal(member) {
     ? member.photos
     : [{ url: member.photo || null, caption: member.photoCaption || member.name }];
 
-  // Left: Photo Carousel
   leftPane.className = 'modal-left-pane modal-pane-media';
   leftPane.innerHTML = buildPersonCarouselHtml(photos, member.name);
   wirePersonCarousel(leftPane, photos);
 
-  // Build links to children or spouse if present
   const relationsHtml = buildPersonRelationsHtml(member);
-
-  // Clean role string so generation isn't duplicated (e.g. "5. generace • Lékárník a vlastivědec")
   const cleanProfession = (member.role || '').replace(/^\d+\.\s*gen\.\s*•\s*/i, '').trim();
   const roleHeader = cleanProfession
     ? `${member.gen}. generace • ${cleanProfession}`
     : `${member.gen}. generace`;
 
-  // Right: Title, Role, Dates, Description, Related Links
   rightPane.className = 'modal-right-pane modal-pane-details';
   rightPane.innerHTML = `
     <div class="modal-details-content">
@@ -220,7 +335,7 @@ function openPersonOverlayModal(member) {
 
       <div class="tree-bio-box tree-bio-expanded">
         <span class="tree-bio-label">Životopis a působení</span>
-        <p>${member.description}</p>
+        <p>${linkifyTreeText(member.description, member.id)}</p>
       </div>
 
       ${relationsHtml}
@@ -232,9 +347,9 @@ function openPersonOverlayModal(member) {
     </div>
   `;
 
-  // Wire up related person buttons inside modal
   rightPane.querySelectorAll('[data-jump-person]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
       const targetId = btn.getAttribute('data-jump-person');
       const nextPerson = PERSON_MAP.get(targetId);
       if (nextPerson) {
@@ -248,9 +363,19 @@ function openPersonOverlayModal(member) {
   backdrop.classList.add('open');
   backdrop.setAttribute('aria-hidden', 'false');
 }
+window.openPersonOverlayModal = openPersonOverlayModal;
+window.PERSON_MAP = PERSON_MAP;
 
 function buildPersonRelationsHtml(member) {
   const pills = [];
+  if (member._parentId && PERSON_MAP.has(member._parentId)) {
+    const p = PERSON_MAP.get(member._parentId);
+    pills.push(`<button type="button" class="relation-pill" data-jump-person="${p.id}">↑ Rodič: ${p.name}</button>`);
+  }
+  if (member._isSpouseOf && PERSON_MAP.has(member._isSpouseOf)) {
+    const sp = PERSON_MAP.get(member._isSpouseOf);
+    pills.push(`<button type="button" class="relation-pill" data-jump-person="${sp.id}">⚭ ${sp.name}</button>`);
+  }
   if (member.spouse) {
     pills.push(`<button type="button" class="relation-pill" data-jump-person="${member.spouse.id}">⚭ ${member.spouse.name}</button>`);
   }
@@ -280,7 +405,7 @@ function buildPersonCarouselHtml(photos, fallbackTitle) {
         <button type="button" class="samsung-stage-nav next" title="Další fotografie">›</button>
       </div>
       <div class="samsung-caption-bar" id="samsung-caption-bar">
-        <div class="samsung-caption-title">${first.caption || fallbackTitle}</div>
+        <div class="samsung-caption-title">${linkifyTreeText(first.caption || fallbackTitle)}</div>
       </div>
       <div class="samsung-filmstrip" id="samsung-filmstrip">
         ${photos.map((p, idx) => `
@@ -304,7 +429,7 @@ function renderPersonPhotoSlide(photo, idx, total) {
     <div class="samsung-placeholder-art">
       <div class="samsung-placeholder-badge">Fotografie ${idx + 1} z ${total}</div>
       <div class="samsung-placeholder-icon">👤</div>
-      <div class="samsung-placeholder-caption">${photo.caption || 'Portrétní fotografie'}</div>
+      <div class="samsung-placeholder-caption">${linkifyTreeText(photo.caption || 'Portrétní fotografie')}</div>
     </div>
   `;
 }
@@ -326,7 +451,7 @@ function wirePersonCarousel(container, photos) {
       mainDisplay.innerHTML = renderPersonPhotoSlide(current, activeIndex, photos.length);
     }
     if (captionBar) {
-      captionBar.innerHTML = `<div class="samsung-caption-title">${current.caption || ''}</div>`;
+      captionBar.innerHTML = `<div class="samsung-caption-title">${linkifyTreeText(current.caption || '')}</div>`;
     }
     thumbs.forEach((t, idx) => t.classList.toggle('active', idx === activeIndex));
   }
@@ -364,9 +489,10 @@ function closePersonModal() {
   backdrop.classList.remove('open');
   backdrop.setAttribute('aria-hidden', 'true');
 }
+window.closePersonModal = closePersonModal;
 
 // ==========================================================================
-// Canvas Pan & Zoom Setup (Sharp 2D Transform to avoid blurry text on zoom)
+// Canvas Pan & Zoom Setup (Auto-fits & centers tree)
 // ==========================================================================
 function setupCanvasPanAndZoom() {
   const viewport = document.getElementById('tree-viewport');
@@ -380,8 +506,8 @@ function setupCanvasPanAndZoom() {
 
   let panX = 0;
   let panY = 0;
-  let scale = 0.88;
-  const MIN_SCALE = 0.35;
+  let scale = 0.82;
+  const MIN_SCALE = 0.25;
   const MAX_SCALE = 2.0;
 
   let edgeVelX = 0;
@@ -392,27 +518,34 @@ function setupCanvasPanAndZoom() {
   let dragStartY = 0;
 
   function applyTransform() {
-    // Use 2D translate + zoom/scale without will-change 3D texture caching so text stays crisp
     canvas.style.transform = `translate(${Math.round(panX)}px, ${Math.round(panY)}px) scale(${scale})`;
     if (zoomReadout) {
       zoomReadout.textContent = `${Math.round(scale * 100)} %`;
     }
   }
 
-  function centerTree() {
-    scale = 0.88;
+  function centerTree(autoFitAll = true) {
     canvas.style.transform = 'translate(0px, 0px) scale(1)';
     const treeEl = document.getElementById('genealogy-root');
+    if (!treeEl) return;
     const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const treeWidth = treeEl.offsetWidth;
-    const treeHeight = treeEl.offsetHeight;
+    const vh = window.innerHeight - 60;
+    const treeWidth = treeEl.offsetWidth + 120;
+    const treeHeight = treeEl.offsetHeight + 100;
 
-    panX = (vw - treeWidth * scale) / 2;
-    if (treeHeight * scale < vh - 100) {
-      panY = (vh - treeHeight * scale) / 2 + 12;
+    if (autoFitAll && treeWidth > 0 && treeHeight > 0) {
+      const fitW = vw / treeWidth;
+      const fitH = vh / treeHeight;
+      scale = Math.min(0.92, Math.max(0.42, Math.min(fitW, fitH * 1.15)));
     } else {
-      panY = 48;
+      scale = 0.82;
+    }
+
+    panX = (vw - treeEl.offsetWidth * scale) / 2;
+    if (treeEl.offsetHeight * scale < vh - 80) {
+      panY = (vh - treeEl.offsetHeight * scale) / 2 + 12;
+    } else {
+      panY = 36;
     }
     applyTransform();
   }
@@ -464,8 +597,9 @@ function setupCanvasPanAndZoom() {
   const MAX_PAN_SPEED = 10;
 
   window.addEventListener('mousemove', (e) => {
-    const modalOpen = document.getElementById('universal-modal')?.classList.contains('open');
-    if (modalOpen) {
+    const modalOpen = document.getElementById('universal-modal')?.classList.contains('open') ||
+                      document.querySelector('.cms-modal-backdrop.open');
+    if (modalOpen || window._cmsDraggingTreeElement) {
       clearEdgeVelocities();
       return;
     }
@@ -478,7 +612,7 @@ function setupCanvasPanAndZoom() {
       return;
     }
 
-    if (isOverUiPanel) {
+    if (isOverUiPanel || e.target.closest('[data-ui-panel="true"], .cms-top-bar, .cms-action-popover')) {
       clearEdgeVelocities();
       return;
     }
@@ -487,6 +621,7 @@ function setupCanvasPanAndZoom() {
     const vh = window.innerHeight;
     const x = e.clientX;
     const y = e.clientY;
+    const topSafeOffset = document.body.classList.contains('cms-visual-active') ? 102 : 52;
 
     if (x < EDGE_THRESHOLD) {
       const intensity = 1 - x / EDGE_THRESHOLD;
@@ -504,8 +639,8 @@ function setupCanvasPanAndZoom() {
       edgeRight?.classList.remove('active');
     }
 
-    if (y > 46 && y < 46 + EDGE_THRESHOLD) {
-      const intensity = 1 - (y - 46) / EDGE_THRESHOLD;
+    if (y > topSafeOffset && y < topSafeOffset + EDGE_THRESHOLD) {
+      const intensity = 1 - (y - topSafeOffset) / EDGE_THRESHOLD;
       edgeVelY = MAX_PAN_SPEED * intensity;
       edgeTop?.classList.add('active');
       edgeBottom?.classList.remove('active');
@@ -526,7 +661,7 @@ function setupCanvasPanAndZoom() {
   });
 
   function edgePanLoop() {
-    if (!isDragging && (edgeVelX !== 0 || edgeVelY !== 0)) {
+    if (!isDragging && !window._cmsDraggingTreeElement && (edgeVelX !== 0 || edgeVelY !== 0)) {
       panX += edgeVelX;
       panY += edgeVelY;
       applyTransform();
@@ -536,7 +671,7 @@ function setupCanvasPanAndZoom() {
   requestAnimationFrame(edgePanLoop);
 
   viewport.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.tree-person-trigger') || e.target.closest('[data-ui-panel="true"]')) {
+    if (e.target.closest('.tree-person-card, [data-ui-panel="true"], .cms-action-popover')) {
       return;
     }
     isDragging = true;
@@ -558,11 +693,17 @@ function setupCanvasPanAndZoom() {
 
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => zoomBy(1.18));
   document.getElementById('btn-zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.18));
-  document.getElementById('btn-center-tree')?.addEventListener('click', () => centerTree());
+  document.getElementById('btn-center-tree')?.addEventListener('click', () => centerTree(true));
 
   requestAnimationFrame(() => {
-    centerTree();
+    centerTree(true);
   });
 
-  return { centerTree, focusOnElement };
+  panZoomController = {
+    centerTree,
+    focusOnElement,
+    getScale: () => scale,
+    getPan: () => ({ panX, panY })
+  };
+  return panZoomController;
 }

@@ -1,0 +1,17 @@
+# Pracovní poznámky a zdrojové dokumenty
+notes/
+*.docx
+
+# Data webu, zálohy, konfigurace CMS a nahrané soubory
+data/
+uploads/
+
+# Lokální prostředí, Node.js a systémové soubory
+node_modules/
+npm-debug.log*
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*~
+*.swp

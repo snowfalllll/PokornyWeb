@@ -4,130 +4,235 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Správa obsahu (CMS) | Pokorní z Příbora</title>
+  <title>Přihlášení do správy webu (CMS) | Pokorní z Příbora</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/admin.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top, #232a32 0%, #14181d 100%);
+      color: #faf7f2;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: #faf7f2;
+      color: #1f2421;
+      border-radius: 10px;
+      border: 2px solid #9e7b42;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+    .login-header {
+      background: #141920;
+      color: #faf7f2;
+      padding: 1.35rem 1.6rem;
+      border-bottom: 2px solid #9e7b42;
+    }
+    .login-eyebrow {
+      display: block;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #d4b072;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .login-header h1 {
+      margin: 0;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.65rem;
+      font-weight: 700;
+      color: #faf7f2;
+    }
+    .login-body {
+      padding: 1.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+    }
+    .login-desc {
+      margin: 0;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      color: #5a605d;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .field label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #5a605d;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .field input {
+      width: 100%;
+      padding: 0.68rem 0.85rem;
+      font-size: 0.95rem;
+      font-family: inherit;
+      color: #1f2421;
+      background: #ffffff;
+      border: 1px solid #cbbba0;
+      border-radius: 5px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: #9e7b42;
+      box-shadow: 0 0 0 3px rgba(158, 123, 66, 0.18);
+    }
+    .error-msg {
+      display: none;
+      background: rgba(155, 34, 38, 0.1);
+      border-left: 3px solid #9b2226;
+      color: #9b2226;
+      padding: 0.6rem 0.8rem;
+      border-radius: 4px;
+      font-size: 0.84rem;
+      font-weight: 600;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.35rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      padding: 0.62rem 1.1rem;
+      font-size: 0.86rem;
+      font-weight: 600;
+      font-family: inherit;
+      border-radius: 5px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .btn-outline {
+      background: transparent;
+      color: #5a605d;
+      border-color: #cbbba0;
+    }
+    .btn-outline:hover {
+      background: #efe9dc;
+      color: #1f2421;
+    }
+    .btn-primary {
+      background: #9e7b42;
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background: #846533;
+    }
+    .btn-primary:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+  </style>
 </head>
 <body>
 
-  <!-- Login Screen Overlay -->
-  <div id="cms-login-screen" class="cms-login-backdrop">
-    <div class="cms-login-card">
-      <div class="cms-login-badge">Lékárna U Panny Marie pomocné • Zal. 1756</div>
-      <h1>Správa webu Pokorní z Příbora</h1>
-      <p>Přihlaste se do redakčního systému pro úpravu textů, časových os, archivu a rodokmenu.</p>
-      <form id="cms-login-form">
-        <label for="cms-password-input">Přístupové heslo</label>
-        <input type="password" id="cms-password-input" placeholder="Zadejte heslo..." required autocomplete="current-password" />
-        <div id="cms-login-error" class="cms-error-msg" hidden></div>
-        <button type="submit" class="cms-btn cms-btn-primary cms-btn-full">Přihlásit se do administrace</button>
-      </form>
-      <div class="cms-login-footer">
-        <a href="index.html">← Zpět na veřejný web</a>
-      </div>
+  <main class="login-card">
+    <div class="login-header">
+      <span class="login-eyebrow">Pokorní z Příbora • Lékárna 1756</span>
+      <h1>Přihlášení do editoru (CMS)</h1>
     </div>
-  </div>
-
-  <!-- Main CMS Application -->
-  <div id="cms-app" class="cms-layout" hidden>
-    <!-- Top Bar -->
-    <header class="cms-topbar">
-      <div class="cms-topbar-left">
-        <span class="cms-brand-title">Pokorní z Příbora</span>
-        <span class="cms-brand-tag">Redakční systém (CMS)</span>
-        <span id="cms-dirty-indicator" class="cms-status-pill saved">✓ Všechny změny uloženy</span>
+    <form id="admin-login-form" class="login-body">
+      <p class="login-desc">
+        Zadejte administrátorské heslo pro odemknutí vizuálního editoru stránek, správy fotografií, časových os a interaktivního rodokmenu.
+      </p>
+      <div class="field">
+        <label for="admin-pass">Přístupové heslo</label>
+        <input type="password" id="admin-pass" placeholder="Zadejte heslo..." required autocomplete="current-password" autofocus />
       </div>
-      <div class="cms-topbar-actions">
-        <button type="button" id="btn-preview-changes" class="cms-btn cms-btn-preview" title="Otevřít živý náhled rozpracovaného webu v novém panelu prohlížeče">🔍 Náhled změn ↗</button>
-        <a href="index.html" target="_blank" id="link-live-site" class="cms-btn cms-btn-outline" title="Otevřít aktuálně publikovaný veřejný web">👁️ Veřejný web ↗</a>
-        <button type="button" id="btn-export-json" class="cms-btn cms-btn-outline" title="Stáhnout zálohu dat do počítače">📦 Stáhnout zálohu</button>
-        <label class="cms-btn cms-btn-outline" title="Nahrát zálohu ze souboru .json">
-          📂 Nahrát zálohu
-          <input type="file" id="input-import-json" accept=".json" hidden />
-        </label>
-        <button type="button" id="btn-save-draft" class="cms-btn cms-btn-primary" title="Uložit rozpracované úpravy v CMS na později (bez publikování na veřejný web)">💾 Uložit rozpracované</button>
-        <button type="button" id="btn-publish-live" class="cms-btn cms-btn-save" title="Publikovat změny naživo na veřejný web">🚀 Publikovat na web</button>
-        <button type="button" id="btn-logout" class="cms-btn cms-btn-ghost" title="Odhlásit se">Odhlásit</button>
+      <div id="admin-error" class="error-msg"></div>
+      <div class="actions">
+        <a href="index.html" id="back-to-public" class="btn btn-outline">← Zpět na veřejný web</a>
+        <button type="submit" id="submit-btn" class="btn btn-primary">Přihlásit se a upravovat →</button>
       </div>
-    </header>
+    </form>
+  </main>
 
-    <div class="cms-body">
-      <!-- Left Sidebar Navigation -->
-      <aside class="cms-sidebar">
-        <div class="cms-nav-group-label">Obsah stránek</div>
-        <button type="button" class="cms-nav-btn active" data-tab="pages">
-          <span class="cms-nav-icon">📝</span>
-          <span>1. Texty a nadpisy stránek</span>
-        </button>
-        <button type="button" class="cms-nav-btn" data-tab="pharmacy-timeline">
-          <span class="cms-nav-icon">🏛️</span>
-          <span>2. Časová osa: Lékárna</span>
-        </button>
-        <button type="button" class="cms-nav-btn" data-tab="vaclav-content">
-          <span class="cms-nav-icon">🎷</span>
-          <span>3. Václav Pokorný: Osa a fotky</span>
-        </button>
-        <button type="button" class="cms-nav-btn" data-tab="archive">
-          <span class="cms-nav-icon">🗂️</span>
-          <span>4. Archiv a multimédia</span>
-        </button>
-        <button type="button" class="cms-nav-btn" data-tab="audio">
-          <span class="cms-nav-icon">🎵</span>
-          <span>5. Hudební přehrávač (Úvod)</span>
-        </button>
-        <button type="button" class="cms-nav-btn" data-tab="tree">
-          <span class="cms-nav-icon">🌳</span>
-          <span>6. Rodokmen a lékárníci</span>
-        </button>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const rawReturn = params.get('return') || params.get('page') || 'index.html';
+      const safeTarget = /^[a-zA-Z0-9_.-]+\.html(\?.*)?(#.*)?$/.test(rawReturn) ? rawReturn : 'index.html';
 
-        <div class="cms-nav-group-label" style="margin-top: 1.5rem;">Soubory a systém</div>
-        <button type="button" class="cms-nav-btn" data-tab="media">
-          <span class="cms-nav-icon">🖼️</span>
-          <span>7. Správce souborů (Nahrávání)</span>
-        </button>
-        <button type="button" class="cms-nav-btn" data-tab="settings">
-          <span class="cms-nav-icon">🔑</span>
-          <span>8. Nastavení a heslo</span>
-        </button>
-      </aside>
+      function getRedirectUrlWithCms(target) {
+        const url = new URL(target, window.location.href);
+        url.searchParams.set('cms', '1');
+        return url.toString();
+      }
 
-      <!-- Main Workspace Content -->
-      <main id="cms-workspace" class="cms-workspace"></main>
-    </div>
-  </div>
+      // Check if already logged in on the server
+      fetch('api.php?action=status', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.authenticated) {
+            try { sessionStorage.setItem('pokorny_cms_mode', '1'); } catch (e) {}
+            window.location.replace(getRedirectUrlWithCms(safeTarget));
+          }
+        })
+        .catch(() => {});
 
-  <!-- Toast Notification -->
-  <div id="cms-toast" class="cms-toast" hidden></div>
+      const form = document.getElementById('admin-login-form');
+      const passInput = document.getElementById('admin-pass');
+      const errBox = document.getElementById('admin-error');
+      const submitBtn = document.getElementById('submit-btn');
 
-  <!-- Universal File Picker Modal (Upload new file or pick existing uploaded file) -->
-  <div id="cms-file-modal" class="cms-modal-backdrop" hidden>
-    <div class="cms-modal-window">
-      <div class="cms-modal-header">
-        <h3 id="cms-file-modal-title">Vybrat nebo nahrát soubor</h3>
-        <button type="button" id="cms-file-modal-close" class="cms-modal-close">✕</button>
-      </div>
-      <div class="cms-modal-body">
-        <div class="cms-upload-dropzone">
-          <div class="cms-upload-dropzone-info">
-            <strong>☁️ Nahrát nový soubor z počítače</strong>
-            <span>Podporované formáty: JPG, PNG, WEBP, SVG, PDF, MP3, WAV, OGG, WMA</span>
-          </div>
-          <label class="cms-btn cms-btn-primary">
-            + Vybrat soubor z počítače
-            <input type="file" id="cms-modal-file-input" hidden />
-          </label>
-        </div>
-        <div id="cms-file-modal-status" class="cms-upload-status" hidden></div>
-        <h4 style="margin: 1.25rem 0 0.6rem;">Nebo vyberte z již nahraných souborů na serveru:</h4>
-        <div id="cms-file-modal-list" class="cms-file-picker-grid"></div>
-      </div>
-    </div>
-  </div>
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errBox.style.display = 'none';
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Ověřuji…';
 
-  <script src="data/content.js"></script>
-  <script src="js/admin.js"></script>
+        try {
+          const res = await fetch('api.php?action=login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ password: passInput.value })
+          });
+          const data = await res.json();
+          if (data && data.ok && data.authenticated) {
+            try { sessionStorage.setItem('pokorny_cms_mode', '1'); } catch (e) {}
+            window.location.replace(getRedirectUrlWithCms(safeTarget));
+          } else {
+            errBox.textContent = (data && data.error) ? data.error : 'Nesprávné heslo.';
+            errBox.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Přihlásit se a upravovat →';
+          }
+        } catch (err) {
+          errBox.textContent = 'Chyba spojení se serverem.';
+          errBox.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Přihlásit se a upravovat →';
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

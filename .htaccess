@@ -14,10 +14,12 @@ DirectoryIndex index.html
   RewriteCond %{HTTP_HOST} !^127\.0\.0\.1
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-  # 2. Zakázat přístup ke skrytým souborům (.git, .env), poznámkám a pracovním .docx dokumentům
+  # 2. Zakázat přímý přístup ke skrytým souborům (.git, .env), poznámkám, CMS skriptům a pracovním dokumentům
   RewriteRule (^|/)\.(?!well-known/) - [F,L]
   RewriteRule ^notes/ - [F,L]
   RewriteRule ^server\.js$ - [F,L]
+  RewriteRule ^js/admin\.js$ - [F,L]
+  RewriteRule ^css/admin\.css$ - [F,L]
   RewriteRule \.(docx|md)$ - [F,L]
 
   # 3. Čisté URL adresy bez .html (např. /admin -> /admin.html, /rodokmen -> /rodokmen.html)

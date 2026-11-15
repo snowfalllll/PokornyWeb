@@ -1,1895 +1,2726 @@
 /**
- * Pokorní z Příbora — Visual CMS Logic (js/admin.js)
- * Works seamlessly with both `api.php` (Czech PHP webhosting) and `server.js` (Node.js local server).
+ * Pokorní z Příbora — In-Place Visual WYSIWYG CMS Engine (js/admin.js)
+ * Turns the live website into an interactive visual editor with:
+ * - Direct click-to-edit on any text/heading/paragraph (preserving Markdown & family links)
+ * - Floating "▶ Kliknout | ✏️ Upravit" popover on all interactive elements
+ * - Drag-and-drop Timeline Medallion Overview Bar
+ * - Flowchart-style Family Tree Editor with draggable cards, parent/child/spouse ports & auto-organize
+ * - Named, restorable Save History & Unsaved Changes prompt with elapsed time since last save
+ * - Folder-organized File Manager & direct file upload inside the File Picker
  */
 
-let cmsData = null;
-let serverFiles = [];
-let csrfToken = '';
-let activeTab = 'pages';
-let activePageSubtab = 'home';
-let activeVaclavSubtab = 'photos';
-let activeTreeSubtab = 'members';
-let selectedPersonId = 'vaclav-6';
-let archiveFilterCategory = 'all';
-let isDirty = false;
-let hasUnpublishedDraft = false;
-let currentFilePickerCallback = null;
-let currentFilePickerFilter = null; // 'image' | 'pdf' | 'audio' | null
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('cms') === '0') {
+    sessionStorage.removeItem('pokorny_cms_mode');
+    return;
+  }
 
-document.addEventListener('DOMContentLoaded', () => {
-  cmsData = JSON.parse(JSON.stringify(typeof SITE_DATA !== 'undefined' ? SITE_DATA : {}));
-  ensureDataDefaults();
-  initAuthAndStatus();
-  wireGlobalControls();
-});
+  const isCmsRequested = params.get('cms') === '1' || sessionStorage.getItem('pokorny_cms_mode') === '1';
+  if (!isCmsRequested) return;
 
-function ensureDataDefaults() {
-  if (!cmsData.pageText) cmsData.pageText = { global: {}, home: {}, lekarna: {}, vaclav: {} };
-  if (!cmsData.pageText.global) cmsData.pageText.global = {};
-  if (!cmsData.pageText.home) cmsData.pageText.home = {};
-  if (!cmsData.pageText.lekarna) cmsData.pageText.lekarna = {};
-  if (!cmsData.pageText.vaclav) cmsData.pageText.vaclav = {};
-  if (!Array.isArray(cmsData.pharmacyTimeline)) cmsData.pharmacyTimeline = [];
-  if (!Array.isArray(cmsData.vaclavTimeline)) cmsData.vaclavTimeline = [];
-  if (!Array.isArray(cmsData.vaclavInteractivePhotos)) cmsData.vaclavInteractivePhotos = [];
-  if (!Array.isArray(cmsData.archiveItems)) cmsData.archiveItems = [];
-  if (!Array.isArray(cmsData.audioTracks)) cmsData.audioTracks = [];
-  if (!Array.isArray(cmsData.personLinks)) cmsData.personLinks = [];
-  if (!cmsData.familyTree) cmsData.familyTree = { treeRoot: {}, pharmacistsLine: [], brozikConnection: {} };
-}
+  sessionStorage.setItem('pokorny_cms_mode', '1');
 
-function markDirty(state = true, draftSaved = hasUnpublishedDraft) {
-  isDirty = state;
-  hasUnpublishedDraft = draftSaved;
-  // Sync current working draft to localStorage so Live Preview tab always reflects latest edits
-  try {
-    localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(cmsData));
-  } catch (e) {}
+  let csrfToken = '';
+  let isAuthenticated = false;
+  let isDirty = false;
+  let hasUnpublishedDraft = false;
+  let lastSavedTimestamp = null; // ms epoch or null
+  let serverFiles = [];
+  let serverFolders = ['uploads'];
+  let activeUploadFolder = 'uploads';
+  let serverBackups = [];
+  let activePopoverCleanup = null;
+  let bypassingClickElement = null;
 
-  const pill = document.getElementById('cms-dirty-indicator');
-  if (!pill) return;
-  if (isDirty) {
-    pill.textContent = '● Neuložené úpravy (uložte rozpracované nebo publikujte)';
-    pill.className = 'cms-status-pill dirty';
-  } else if (hasUnpublishedDraft) {
-    pill.textContent = '📝 Uloženo jako koncept (zatím nepublikováno na web)';
-    pill.className = 'cms-status-pill dirty';
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => checkCmsStatusAndInit());
   } else {
-    pill.textContent = '✓ Publikováno naživo';
-    pill.className = 'cms-status-pill saved';
+    checkCmsStatusAndInit();
   }
-}
 
-function showToast(msg) {
-  const toast = document.getElementById('cms-toast');
-  if (!toast) return;
-  toast.textContent = msg;
-  toast.hidden = false;
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => {
-    toast.hidden = true;
-  }, 3600);
-}
-
-function escapeHtml(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// ==========================================================================
-// Authentication & Server Status
-// ==========================================================================
-async function initAuthAndStatus() {
-  try {
-    const res = await fetch('api.php?action=status');
-    const data = await res.json();
-    if (data && data.authenticated) {
-      serverFiles = data.files || [];
-      csrfToken = data.csrfToken || '';
-      if (data.hasDraft && data.draftData) {
-        cmsData = data.draftData;
-        ensureDataDefaults();
-        markDirty(false, true);
-        showToast('Načteny vaše dříve uložené rozpracované úpravy.');
-      }
-      showCmsApp();
-    } else {
-      showLoginScreen();
-    }
-  } catch (err) {
-    // Fallback if opened via file:// protocol without server running
-    showLoginScreen('Upozornění: Pro přímé ukládání na disk spusťte server (node server.js) nebo otevřete administraci na webhostingu. Přesto si můžete úpravy vyzkoušet a exportovat jako zálohu.');
-  }
-}
-
-function showLoginScreen(notice) {
-  document.getElementById('cms-login-screen').hidden = false;
-  document.getElementById('cms-app').hidden = true;
-  if (notice) {
-    const errEl = document.getElementById('cms-login-error');
-    errEl.textContent = notice;
-    errEl.hidden = false;
-  }
-}
-
-function showCmsApp() {
-  document.getElementById('cms-login-screen').hidden = true;
-  document.getElementById('cms-app').hidden = false;
-  renderActiveTab();
-}
-
-function wireGlobalControls() {
-  // Login Form
-  document.getElementById('cms-login-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const pwd = document.getElementById('cms-password-input').value;
-    const errEl = document.getElementById('cms-login-error');
-    errEl.hidden = true;
-
+  async function checkCmsStatusAndInit() {
     try {
-      const res = await fetch('api.php?action=login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd })
-      });
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        serverFiles = data.files || [];
+      let data = window.__POKORNY_CMS_INIT_STATUS__;
+      if (!data) {
+        const res = await fetch('api.php?action=status', { credentials: 'same-origin' });
+        data = await res.json();
+      }
+      if (data && data.authenticated) {
         csrfToken = data.csrfToken || '';
-        if (data.hasDraft && data.draftData) {
-          cmsData = data.draftData;
-          ensureDataDefaults();
-          markDirty(false, true);
+        isAuthenticated = true;
+        serverFiles = data.files || [];
+        serverFolders = data.folders || ['uploads'];
+        serverBackups = data.backups || [];
+        if (data.lastSavedAt) {
+          lastSavedTimestamp = new Date(data.lastSavedAt).getTime();
         }
-        showCmsApp();
-        showToast(data.hasDraft ? 'Přihlášeno — načten rozpracovaný koncept.' : 'Přihlášení proběhlo úspěšně.');
+        if (data.hasDraft && data.draftData) {
+          hasUnpublishedDraft = true;
+          Object.assign(SITE_DATA, data.draftData);
+          localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(SITE_DATA));
+          if (typeof window.refreshPageView === 'function') {
+            window.refreshPageView();
+          }
+        }
+        activateVisualCmsMode();
       } else {
-        errEl.textContent = data.error || 'Nesprávné heslo.';
-        errEl.hidden = false;
+        redirectToSeparateLoginSubpage();
       }
     } catch (err) {
-      // Offline preview fallback if password matches default
-      if (pwd === 'pribor1756') {
-        showCmsApp();
-        showToast('Offline režim: Změny můžete uložit pomocí tlačítka Stáhnout zálohu.');
-      } else {
-        errEl.textContent = 'Server není dostupný (spusťte node server.js nebo nahrajte na PHP hosting).';
-        errEl.hidden = false;
-      }
+      redirectToSeparateLoginSubpage();
     }
-  });
+  }
 
-  // Logout
-  document.getElementById('btn-logout')?.addEventListener('click', async () => {
-    try { await fetch('api.php?action=logout'); } catch (e) {}
-    showLoginScreen();
-  });
+  function redirectToSeparateLoginSubpage() {
+    sessionStorage.removeItem('pokorny_cms_mode');
+    const pageName = window.location.pathname.split('/').pop() || 'index.html';
+    window.location.replace(`admin.html?return=${encodeURIComponent(pageName)}`);
+  }
 
-  // Save Draft (without publishing live) & Publish Live
-  document.getElementById('btn-save-draft')?.addEventListener('click', saveDraftToServer);
-  document.getElementById('btn-publish-live')?.addEventListener('click', publishChangesLiveToServer);
+  // ==========================================================================
+  // 2. Activate Visual CMS Mode & Top Bar
+  // ==========================================================================
+  function activateVisualCmsMode() {
+    document.body.classList.add('cms-visual-active');
+    renderCmsTopBar();
+    updateKeepNavLinksInCmsMode();
+    setupBeforeUnloadGuard();
 
-  // Open Live Preview in a New Tab
-  document.getElementById('btn-preview-changes')?.addEventListener('click', openPreviewInNewTab);
-
-  // Ensure clicking "Veřejný web" clears preview session flag so the user sees the real published version
-  document.getElementById('link-live-site')?.addEventListener('click', () => {
-    sessionStorage.removeItem('pokorny_cms_preview_active');
-  });
-
-  // Export JSON Backup
-  document.getElementById('btn-export-json')?.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(cmsData, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `pokorni-web-zaloha-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    showToast('Záloha byla stažena do vašeho počítače.');
-  });
-
-  // Import JSON Backup
-  document.getElementById('input-import-json')?.addEventListener('change', (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result);
-        if (parsed && (parsed.pharmacyTimeline || parsed.familyTree)) {
-          cmsData = parsed;
-          ensureDataDefaults();
-          markDirty(true);
-          renderActiveTab();
-          showToast('Záloha byla načtena. Nezapomeňte kliknout na „Uložit a publikovat změny“.');
-        } else {
-          alert('Soubor neobsahuje platná data webu Pokorní z Příbora.');
-        }
-      } catch (err) {
-        alert('Chyba při čtení JSON souboru: ' + err.message);
+    window.onCmsAfterPageRender = function () {
+      updateKeepNavLinksInCmsMode();
+      injectTimelineDndBars();
+      injectSectionAddButtons();
+      markInteractableTargets();
+      if (document.body.getAttribute('data-page') === 'rodokmen') {
+        initTreeFlowchartEditor();
       }
     };
-    reader.readAsText(file);
-  });
 
-  // Sidebar Tabs
-  document.querySelectorAll('.cms-nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.cms-nav-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeTab = btn.getAttribute('data-tab');
-      renderActiveTab();
-    });
-  });
+    window.onCmsAfterPageRender();
+    setupGlobalCmsClickInterceptor();
 
-  // File Picker Modal
-  document.getElementById('cms-file-modal-close')?.addEventListener('click', closeFilePickerModal);
-  document.getElementById('cms-file-modal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'cms-file-modal') closeFilePickerModal();
-  });
-  document.getElementById('cms-modal-file-input')?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    await uploadFileToServer(file, true);
-    e.target.value = '';
-  });
+    setInterval(updateLastSaveTimerDisplay, 15000);
+  }
 
-  window.addEventListener('beforeunload', (e) => {
-    if (isDirty) {
-      e.preventDefault();
-      e.returnValue = '';
+  function formatTimeSinceLastSave() {
+    if (!lastSavedTimestamp) return 'Zatím žádné uložení v této relaci';
+    const diffSec = Math.max(0, Math.floor((Date.now() - lastSavedTimestamp) / 1000));
+    if (diffSec < 45) return 'před méně než minutou';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `před ${diffMin} min.`;
+    const diffHours = Math.floor(diffMin / 60);
+    const remMin = diffMin % 60;
+    if (diffHours < 24) return `před ${diffHours} hod. ${remMin > 0 ? `${remMin} min.` : ''}`.trim();
+    const diffDays = Math.floor(diffHours / 24);
+    return `před ${diffDays} dny`;
+  }
+
+  function updateLastSaveTimerDisplay() {
+    const timerEl = document.getElementById('cms-last-save-timer');
+    if (timerEl) {
+      timerEl.textContent = lastSavedTimestamp
+        ? `Poslední uložení: ${formatTimeSinceLastSave()}`
+        : 'Dosud neuloženo';
     }
-  });
-}
-
-function openPreviewInNewTab() {
-  try {
-    localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(cmsData));
-  } catch (e) {}
-
-  // Open the page matching the currently edited tab in a new browser tab
-  let targetUrl = 'index.html?cms_preview=1';
-  if (activeTab === 'pharmacy-timeline' || (activeTab === 'pages' && activePageSubtab === 'lekarna')) {
-    targetUrl = 'historie-lekarny.html?cms_preview=1';
-  } else if (activeTab === 'vaclav-content' || (activeTab === 'pages' && activePageSubtab === 'vaclav')) {
-    targetUrl = 'vaclav-pokorny.html?cms_preview=1';
-  } else if (activeTab === 'tree') {
-    targetUrl = 'rodokmen.html?cms_preview=1';
   }
 
-  window.open(targetUrl, '_blank');
-}
-
-async function saveDraftToServer() {
-  const btn = document.getElementById('btn-save-draft');
-  const origText = btn.textContent;
-  btn.textContent = '⏳ Ukládám koncept...';
-  btn.disabled = true;
-
-  try {
-    localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(cmsData));
-  } catch (e) {}
-
-  try {
-    const res = await fetch('api.php?action=save_draft', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken
-      },
-      body: JSON.stringify({ siteData: cmsData })
-    });
-    const data = await res.json();
-    if (res.ok && data.ok) {
-      markDirty(false, true);
-      showToast('💾 Rozpracované úpravy byly uloženy na později (veřejný web zůstává beze změny).');
-    } else {
-      alert('Chyba při ukládání konceptu: ' + (data.error || 'Neznámá chyba'));
-    }
-  } catch (err) {
-    markDirty(false, true);
-    showToast('💾 Koncept uložen v prohlížeči.');
-  } finally {
-    btn.textContent = origText;
-    btn.disabled = false;
-  }
-}
-
-async function publishChangesLiveToServer() {
-  const btn = document.getElementById('btn-publish-live');
-  const origText = btn.textContent;
-  btn.textContent = '⏳ Publikuji...';
-  btn.disabled = true;
-
-  try {
-    const res = await fetch('api.php?action=save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken
-      },
-      body: JSON.stringify({ siteData: cmsData })
-    });
-    const data = await res.json();
-    if (res.ok && data.ok) {
-      markDirty(false, false);
-      showToast('🚀 Všechny změny byly úspěšně publikovány na veřejný web!');
-    } else {
-      alert('Chyba při publikování: ' + (data.error || 'Neznámá chyba'));
-    }
-  } catch (err) {
-    alert('Nepodařilo se spojit se serverem. Ujistěte se, že běží server (node server.js) nebo PHP hosting.');
-  } finally {
-    btn.textContent = origText;
-    btn.disabled = false;
-  }
-}
-
-// ==========================================================================
-// Workspace Tab Router
-// ==========================================================================
-function renderActiveTab() {
-  const ws = document.getElementById('cms-workspace');
-  if (!ws) return;
-
-  if (activeTab === 'pages') renderPagesTab(ws);
-  else if (activeTab === 'pharmacy-timeline') renderPharmacyTimelineTab(ws);
-  else if (activeTab === 'vaclav-content') renderVaclavContentTab(ws);
-  else if (activeTab === 'archive') renderArchiveTab(ws);
-  else if (activeTab === 'audio') renderAudioTab(ws);
-  else if (activeTab === 'tree') renderTreeTab(ws);
-  else if (activeTab === 'media') renderMediaLibraryTab(ws);
-  else if (activeTab === 'settings') renderSettingsTab(ws);
-}
-
-// ==========================================================================
-// TAB 1: Texty a nadpisy stránek (pageText)
-// ==========================================================================
-function renderPagesTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>1. Texty, nadpisy a úvodní boxy stránek</h2>
-        <p>Zde můžete upravit veškeré nadpisy, podtitulky, popisky sekcí a obrázky na všech stránkách webu.</p>
-      </div>
-    </div>
-
-    <div class="cms-subtabs">
-      <button type="button" class="cms-subtab-btn ${activePageSubtab === 'home' ? 'active' : ''}" data-sub="home">Úvodní stránka (index.html)</button>
-      <button type="button" class="cms-subtab-btn ${activePageSubtab === 'lekarna' ? 'active' : ''}" data-sub="lekarna">Historie lékárny</button>
-      <button type="button" class="cms-subtab-btn ${activePageSubtab === 'vaclav' ? 'active' : ''}" data-sub="vaclav">PhMr. Václav Pokorný</button>
-      <button type="button" class="cms-subtab-btn ${activePageSubtab === 'global' ? 'active' : ''}" data-sub="global">Hlavička a horní menu (všechny stránky)</button>
-    </div>
-
-    <div id="cms-pages-subcontent"></div>
-  `;
-
-  ws.querySelectorAll('.cms-subtab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activePageSubtab = btn.getAttribute('data-sub');
-      renderPagesTab(ws);
-    });
-  });
-
-  const sub = document.getElementById('cms-pages-subcontent');
-  if (activePageSubtab === 'global') {
-    const g = cmsData.pageText.global;
-    sub.innerHTML = `
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Horní lišta a navigace (společné pro celý web)</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Hlavní název vlevo nahoře', 'global.brandTitle', g.brandTitle)}
-          ${renderTextField('Podtitulek pod názvem', 'global.brandSubtitle', g.brandSubtitle)}
-        </div>
-        <div class="cms-grid-3">
-          ${renderTextField('Odkaz 1 (Úvod)', 'global.navHome', g.navHome)}
-          ${renderTextField('Odkaz 2 (Rodokmen)', 'global.navTree', g.navTree)}
-          ${renderTextField('Odkaz 3 (Historie lékárny)', 'global.navPharmacy', g.navPharmacy)}
-          ${renderTextField('Odkaz 4 (Václav Pokorný)', 'global.navVaclav', g.navVaclav)}
-          ${renderTextField('Odkaz 5 (Archiv)', 'global.navArchive', g.navArchive)}
-        </div>
-      </div>
-    `;
-  } else if (activePageSubtab === 'home') {
-    const h = cmsData.pageText.home;
-    sub.innerHTML = `
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Hlavní hlavička (Hero sekce na Úvodu)</span></div>
-        ${renderTextField('Hlavní velký nadpis (H1)', 'home.heroTitle', h.heroTitle)}
-        ${renderTextareaField('Úvodní odstavec pod nadpisem', 'home.heroSubtitle', h.heroSubtitle)}
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">4 rozcestníkové karty v úvodu</span></div>
-        <div class="cms-grid-2">
-          <div>
-            ${renderTextField('Karta 1: Nadpis (Rodokmen)', 'home.cardTreeTitle', h.cardTreeTitle)}
-            ${renderTextField('Karta 1: Podtitulek', 'home.cardTreeSub', h.cardTreeSub)}
-            ${renderFileField('Karta 1: Obrázek na pozadí (volitelné)', 'home.cardTreeImg', h.cardTreeImg, 'image')}
-          </div>
-          <div>
-            ${renderTextField('Karta 2: Nadpis (Historie lékárny)', 'home.cardPharmacyTitle', h.cardPharmacyTitle)}
-            ${renderTextField('Karta 2: Podtitulek', 'home.cardPharmacySub', h.cardPharmacySub)}
-            ${renderFileField('Karta 2: Obrázek na pozadí (volitelné)', 'home.cardPharmacyImg', h.cardPharmacyImg, 'image')}
-          </div>
-          <div>
-            ${renderTextField('Karta 3: Nadpis (Václav Pokorný)', 'home.cardVaclavTitle', h.cardVaclavTitle)}
-            ${renderTextField('Karta 3: Podtitulek', 'home.cardVaclavSub', h.cardVaclavSub)}
-            ${renderFileField('Karta 3: Obrázek na pozadí (volitelné)', 'home.cardVaclavImg', h.cardVaclavImg, 'image')}
-          </div>
-          <div>
-            ${renderTextField('Karta 4: Nadpis (Archiv)', 'home.cardArchiveTitle', h.cardArchiveTitle)}
-            ${renderTextField('Karta 4: Podtitulek', 'home.cardArchiveSub', h.cardArchiveSub)}
-            ${renderFileField('Karta 4: Obrázek na pozadí (volitelné)', 'home.cardArchiveImg', h.cardArchiveImg, 'image')}
-          </div>
-        </div>
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Sekce 1: Přehled historie lékárny na Úvodu</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Nadtitulek (Eyebrow)', 'home.lekarnaEyebrow', h.lekarnaEyebrow)}
-          ${renderTextField('Nadpis sekce', 'home.lekarnaTitle', h.lekarnaTitle)}
-        </div>
-        ${renderTextareaField('Popis sekce', 'home.lekarnaDesc', h.lekarnaDesc)}
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Sekce 2: Tmavá sekce PhMr. Václava Pokorného a hudební panel</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Nadtitulek sekce', 'home.vaclavEyebrow', h.vaclavEyebrow)}
-          ${renderTextField('Nadpis sekce', 'home.vaclavTitle', h.vaclavTitle)}
-        </div>
-        <div class="cms-grid-2">
-          ${renderFileField('Portrétní fotografie vlevo (volitelné)', 'home.vaclavPortraitImg', h.vaclavPortraitImg, 'image')}
-          ${renderTextField('Popisek pod portrétem', 'home.vaclavPortraitCaption', h.vaclavPortraitCaption)}
-        </div>
-        ${renderTextareaField('Hlavní plovoucí text uprostřed (jména se automaticky prorežou do rodokmenu)', 'home.vaclavLeadSentence', h.vaclavLeadSentence)}
-        <div class="cms-grid-3">
-          ${renderTextField('Text tlačítka Více', 'home.vaclavCtaLabel', h.vaclavCtaLabel)}
-          ${renderTextField('Nadpis hudebního boxu vpravo', 'home.audioTitle', h.audioTitle)}
-          ${renderTextField('Podtitulek hudebního boxu', 'home.audioSubtitle', h.audioSubtitle)}
-        </div>
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Sekce 3: Archiv na Úvodu</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Nadtitulek archivu', 'home.archiveEyebrow', h.archiveEyebrow)}
-          ${renderTextField('Nadpis archivu', 'home.archiveTitle', h.archiveTitle)}
-        </div>
-        ${renderTextareaField('Popis archivu', 'home.archiveDesc', h.archiveDesc)}
-      </div>
-    `;
-  } else if (activePageSubtab === 'lekarna') {
-    const l = cmsData.pageText.lekarna;
-    sub.innerHTML = `
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Úvodní hlavička podstránky Historie lékárny</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Nadtitulek (Eyebrow)', 'lekarna.heroEyebrow', l.heroEyebrow)}
-          ${renderTextField('Hlavní nadpis (H1)', 'lekarna.heroTitle', l.heroTitle)}
-        </div>
-        ${renderTextareaField('Úvodní odstavec (jména v textu se automaticky propojí s rodokmenem)', 'lekarna.heroDesc', l.heroDesc)}
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Nadpisy sekce: Časová osa a 6 generací lékárníků</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Časová osa – Nadtitulek', 'lekarna.timelineEyebrow', l.timelineEyebrow)}
-          ${renderTextField('Časová osa – Nadpis', 'lekarna.timelineTitle', l.timelineTitle)}
-        </div>
-        ${renderTextareaField('Časová osa – Popis', 'lekarna.timelineDesc', l.timelineDesc)}
-        <hr style="border:none; border-top:1px solid #eee7da; margin: 1rem 0;" />
-        <div class="cms-grid-2">
-          ${renderTextField('6 generací – Nadtitulek', 'lekarna.generationsEyebrow', l.generationsEyebrow)}
-          ${renderTextField('6 generací – Nadpis', 'lekarna.generationsTitle', l.generationsTitle)}
-        </div>
-        ${renderTextareaField('6 generací – Popis', 'lekarna.generationsDesc', l.generationsDesc)}
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Spodní sekce: Archiv k lékárně</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Archiv – Nadtitulek', 'lekarna.archiveEyebrow', l.archiveEyebrow)}
-          ${renderTextField('Archiv – Nadpis', 'lekarna.archiveTitle', l.archiveTitle)}
-        </div>
-        ${renderTextareaField('Archiv – Popis', 'lekarna.archiveDesc', l.archiveDesc)}
-      </div>
-    `;
-  } else if (activePageSubtab === 'vaclav') {
-    const v = cmsData.pageText.vaclav;
-    sub.innerHTML = `
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Hlavní životopisný úvod vlevo nahoře (PhMr. Václav Pokorný)</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Nadtitulek (Eyebrow)', 'vaclav.introEyebrow', v.introEyebrow)}
-          ${renderTextField('Hlavní nadpis (H1)', 'vaclav.introTitle', v.introTitle)}
-        </div>
-        ${renderTextareaField('1. odstavec (zvýrazněný úvodní text)', 'vaclav.introLeadParagraph', v.introLeadParagraph, true)}
-        ${renderTextareaField('2. odstavec (pokračování životopisu)', 'vaclav.introSecondParagraph', v.introSecondParagraph, true)}
-        ${renderTextField('Text tlačítka pro přechod do rodokmenu', 'vaclav.treeBtnLabel', v.treeBtnLabel)}
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Nadpisy časové osy a archivu na stránce Václava Pokorného</span></div>
-        <div class="cms-grid-2">
-          ${renderTextField('Časová osa – Nadtitulek', 'vaclav.timelineEyebrow', v.timelineEyebrow)}
-          ${renderTextField('Časová osa – Nadpis', 'vaclav.timelineTitle', v.timelineTitle)}
-        </div>
-        ${renderTextareaField('Časová osa – Popis', 'vaclav.timelineDesc', v.timelineDesc)}
-        <hr style="border:none; border-top:1px solid #eee7da; margin: 1rem 0;" />
-        <div class="cms-grid-2">
-          ${renderTextField('Archiv – Nadtitulek', 'vaclav.archiveEyebrow', v.archiveEyebrow)}
-          ${renderTextField('Archiv – Nadpis', 'vaclav.archiveTitle', v.archiveTitle)}
-        </div>
-        ${renderTextareaField('Archiv – Popis', 'vaclav.archiveDesc', v.archiveDesc)}
-      </div>
-    `;
-  }
-
-  wirePageTextInputs(sub);
-}
-
-function renderTextField(label, pathKey, val) {
-  return `
-    <div class="cms-field">
-      <label>${escapeHtml(label)}</label>
-      <input type="text" class="cms-input" data-page-key="${pathKey}" value="${escapeHtml(val)}" />
-    </div>
-  `;
-}
-
-function renderTextareaField(label, pathKey, val, isTall = false) {
-  return `
-    <div class="cms-field">
-      <label>${escapeHtml(label)}</label>
-      <textarea class="cms-textarea ${isTall ? 'tall' : ''}" data-page-key="${pathKey}">${escapeHtml(val)}</textarea>
-    </div>
-  `;
-}
-
-function renderFileField(label, pathKey, val, filterType = null) {
-  return `
-    <div class="cms-field">
-      <label>${escapeHtml(label)}</label>
-      <div class="cms-input-with-btn">
-        <input type="text" class="cms-input" data-page-key="${pathKey}" value="${escapeHtml(val)}" placeholder="Cesta k souboru (např. uploads/foto.jpg)" />
-        <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-pick-for-page="${pathKey}" data-pick-type="${filterType || ''}">📁 Vybrat / Nahrát</button>
-      </div>
-    </div>
-  `;
-}
-
-function wirePageTextInputs(container) {
-  container.querySelectorAll('[data-page-key]').forEach(input => {
-    input.addEventListener('input', () => {
-      const [section, key] = input.getAttribute('data-page-key').split('.');
-      cmsData.pageText[section][key] = input.value;
-      markDirty(true);
-    });
-  });
-
-  container.querySelectorAll('[data-pick-for-page]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pathKey = btn.getAttribute('data-pick-for-page');
-      const filterType = btn.getAttribute('data-pick-type') || null;
-      openFilePickerModal(filterType, (chosenPath) => {
-        const [section, key] = pathKey.split('.');
-        cmsData.pageText[section][key] = chosenPath;
-        const input = container.querySelector(`[data-page-key="${pathKey}"]`);
-        if (input) input.value = chosenPath;
-        markDirty(true);
-      });
-    });
-  });
-}
-
-// ==========================================================================
-// TAB 2: Časová osa – Historie lékárny (pharmacyTimeline)
-// ==========================================================================
-function renderPharmacyTimelineTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>2. Časová osa – Historie lékárny</h2>
-        <p>Přidávejte, mažte, přesouvejte nebo upravujte milníky historie lékárny (zobrazují se na Úvodu i na podstránce Historie lékárny).</p>
-      </div>
-      <button type="button" id="btn-add-pharmacy-milestone" class="cms-btn cms-btn-primary">+ Přidat nový milník</button>
-    </div>
-    <div id="pharmacy-timeline-editor-list"></div>
-  `;
-
-  document.getElementById('btn-add-pharmacy-milestone')?.addEventListener('click', () => {
-    cmsData.pharmacyTimeline.push({
-      id: 'lekarna-' + Date.now(),
-      year: 'Nové období',
-      title: 'Nový milník lékárny',
-      person: 'Jméno osobnosti',
-      personIds: [],
-      description: 'Krátký popis zobrazovaný přímo v kartě na stránce...',
-      longDescription: 'Podrobné vyprávění, které se otevře ve vyskakovacím okně po kliknutí na tlačítko Více.\n\nDruhý odstavec vyprávění...',
-      photos: [
-        { url: null, caption: 'Popisek fotografie', detail: 'Doplňující detail snímku' }
-      ]
-    });
-    markDirty(true);
-    renderPharmacyTimelineTab(ws);
-    showToast('Přidán nový milník na konec časové osy.');
-  });
-
-  const listEl = document.getElementById('pharmacy-timeline-editor-list');
-  renderTimelineCardsEditor(listEl, cmsData.pharmacyTimeline, 'year', true, () => renderPharmacyTimelineTab(ws));
-}
-
-// Shared Timeline Editor for Pharmacy & Václav
-function renderTimelineCardsEditor(container, listArray, timeFieldKey, hasPersonField, rerenderFn) {
-  container.innerHTML = listArray.map((item, idx) => `
-    <div class="cms-card" data-idx="${idx}">
-      <div class="cms-card-header">
-        <span class="cms-card-title">${idx + 1}. ${escapeHtml(item[timeFieldKey] || '')} — ${escapeHtml(item.title || '')}</span>
-        <div class="cms-card-controls">
-          <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-move="-1" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''} title="Posunout výše">↑ Výše</button>
-          <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-move="1" data-idx="${idx}" ${idx === listArray.length - 1 ? 'disabled' : ''} title="Posunout níže">↓ Níže</button>
-          <button type="button" class="cms-btn cms-btn-danger cms-btn-sm" data-del="${idx}">🗑️ Odstranit milník</button>
-        </div>
-      </div>
-
-      <div class="${hasPersonField ? 'cms-grid-3' : 'cms-grid-2'}">
-        <div class="cms-field">
-          <label>Období / Rok</label>
-          <input type="text" class="cms-input" data-tl-field="${timeFieldKey}" data-idx="${idx}" value="${escapeHtml(item[timeFieldKey])}" />
-        </div>
-        <div class="cms-field">
-          <label>Nadpis milníku</label>
-          <input type="text" class="cms-input" data-tl-field="title" data-idx="${idx}" value="${escapeHtml(item.title)}" />
-        </div>
-        ${hasPersonField ? `
-          <div class="cms-field">
-            <label>Osobnost / Generace (podtitulek)</label>
-            <input type="text" class="cms-input" data-tl-field="person" data-idx="${idx}" value="${escapeHtml(item.person || '')}" />
-          </div>
-        ` : ''}
-      </div>
-
-      <div class="cms-field">
-        <label>Krátký popis (zobrazený přímo v boxu na stránce)</label>
-        <textarea class="cms-textarea" data-tl-field="description" data-idx="${idx}">${escapeHtml(item.description)}</textarea>
-      </div>
-
-      <div class="cms-field">
-        <label>Dlouhý popis ve vyskakovacím okně (odstavce oddělujte prázdným řádkem)</label>
-        <textarea class="cms-textarea tall" data-tl-field="longDescription" data-idx="${idx}">${escapeHtml(item.longDescription)}</textarea>
-      </div>
-
-      ${renderPhotosSubEditorHtml(item.photos || [], `tl-${idx}`)}
-    </div>
-  `).join('');
-
-  // Inputs
-  container.querySelectorAll('[data-tl-field]').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const idx = parseInt(inp.getAttribute('data-idx'), 10);
-      const field = inp.getAttribute('data-tl-field');
-      listArray[idx][field] = inp.value;
-      markDirty(true);
-    });
-  });
-
-  // Move Up / Down
-  container.querySelectorAll('[data-move]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-idx'), 10);
-      const dir = parseInt(btn.getAttribute('data-move'), 10);
-      const target = idx + dir;
-      if (target < 0 || target >= listArray.length) return;
-      const temp = listArray[idx];
-      listArray[idx] = listArray[target];
-      listArray[target] = temp;
-      markDirty(true);
-      rerenderFn();
-    });
-  });
-
-  // Delete
-  container.querySelectorAll('[data-del]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-del'), 10);
-      if (confirm(`Opravdu chcete odstranit milník „${listArray[idx].title}“?`)) {
-        listArray.splice(idx, 1);
-        markDirty(true);
-        rerenderFn();
-      }
-    });
-  });
-
-  // Wire Photo Carousel inside each timeline item
-  listArray.forEach((item, idx) => {
-    if (!Array.isArray(item.photos)) item.photos = [];
-    wirePhotosSubEditor(container, item.photos, `tl-${idx}`, rerenderFn);
-  });
-}
-
-function renderPhotosSubEditorHtml(photos, prefix) {
-  return `
-    <div class="cms-photos-box" data-photos-box="${prefix}">
-      <div class="cms-photos-header">
-        <strong>🖼️ Fotografie v karuselu (${photos.length})</strong>
-        <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-add-photo="${prefix}">+ Přidat fotografii do karuselu</button>
-      </div>
-      ${photos.map((p, pIdx) => `
-        <div class="cms-photo-row">
-          <div class="cms-photo-thumb">
-            ${p.url ? `<img src="${escapeHtml(p.url)}" alt="" />` : '🖼️'}
-          </div>
-          <div class="cms-grid-2" style="margin-bottom:0;">
-            <div>
-              <label style="font-size:0.72rem; font-weight:600;">Soubor obrázku (URL)</label>
-              <div class="cms-input-with-btn">
-                <input type="text" class="cms-input" data-photo-prefix="${prefix}" data-photo-idx="${pIdx}" data-photo-field="url" value="${escapeHtml(p.url || '')}" placeholder="Prázdné = dobový zástupný symbol" />
-                <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-pick-photo="${prefix}" data-photo-idx="${pIdx}">📁 Nahrát / Vybrat</button>
-              </div>
-            </div>
-            <div>
-              <label style="font-size:0.72rem; font-weight:600;">Popisek fotografie (Caption)</label>
-              <input type="text" class="cms-input" data-photo-prefix="${prefix}" data-photo-idx="${pIdx}" data-photo-field="caption" value="${escapeHtml(p.caption || '')}" />
-            </div>
-          </div>
-          <div style="display:flex; gap:0.3rem;">
-            <button type="button" class="cms-btn cms-btn-danger cms-btn-sm" data-remove-photo="${prefix}" data-photo-idx="${pIdx}" title="Odebrat snímek">✕</button>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-function wirePhotosSubEditor(rootContainer, photosArray, prefix, rerenderFn) {
-  const box = rootContainer.querySelector(`[data-photos-box="${prefix}"]`);
-  if (!box) return;
-
-  box.querySelector(`[data-add-photo="${prefix}"]`)?.addEventListener('click', () => {
-    photosArray.push({ url: '', caption: 'Nová fotografie', detail: '' });
-    markDirty(true);
-    rerenderFn();
-  });
-
-  box.querySelectorAll(`[data-photo-prefix="${prefix}"]`).forEach(inp => {
-    inp.addEventListener('input', () => {
-      const pIdx = parseInt(inp.getAttribute('data-photo-idx'), 10);
-      const field = inp.getAttribute('data-photo-field');
-      photosArray[pIdx][field] = inp.value.trim() === '' && field === 'url' ? null : inp.value;
-      markDirty(true);
-    });
-  });
-
-  box.querySelectorAll(`[data-pick-photo="${prefix}"]`).forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pIdx = parseInt(btn.getAttribute('data-photo-idx'), 10);
-      openFilePickerModal('image', (chosenPath) => {
-        photosArray[pIdx].url = chosenPath;
-        markDirty(true);
-        rerenderFn();
-      });
-    });
-  });
-
-  box.querySelectorAll(`[data-remove-photo="${prefix}"]`).forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pIdx = parseInt(btn.getAttribute('data-photo-idx'), 10);
-      photosArray.splice(pIdx, 1);
-      markDirty(true);
-      rerenderFn();
-    });
-  });
-}
-
-// ==========================================================================
-// TAB 3: PhMr. Václav Pokorný – Rámečky s fotografiemi & Časová osa
-// ==========================================================================
-function renderVaclavContentTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>3. PhMr. Václav Pokorný – Fotografie a časová osa</h2>
-        <p>Spravujte zarámované rozklikávací fotografie (vpravo nahoře a vlevo podél osy) i jednotlivé kapitoly životní časové osy.</p>
-      </div>
-    </div>
-
-    <div class="cms-subtabs">
-      <button type="button" class="cms-subtab-btn ${activeVaclavSubtab === 'photos' ? 'active' : ''}" data-vsub="photos">🖼️ Zarámované fotografie na stránce (${cmsData.vaclavInteractivePhotos.length})</button>
-      <button type="button" class="cms-subtab-btn ${activeVaclavSubtab === 'timeline' ? 'active' : ''}" data-vsub="timeline">⏳ Časová osa života (${cmsData.vaclavTimeline.length})</button>
-    </div>
-
-    <div id="vaclav-subcontent"></div>
-  `;
-
-  ws.querySelectorAll('[data-vsub]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeVaclavSubtab = btn.getAttribute('data-vsub');
-      renderVaclavContentTab(ws);
-    });
-  });
-
-  const sub = document.getElementById('vaclav-subcontent');
-  if (activeVaclavSubtab === 'timeline') {
-    sub.innerHTML = `
-      <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-        <button type="button" id="btn-add-vaclav-milestone" class="cms-btn cms-btn-primary">+ Přidat kapitolu na časovou osu</button>
-      </div>
-      <div id="vaclav-timeline-list"></div>
-    `;
-    document.getElementById('btn-add-vaclav-milestone')?.addEventListener('click', () => {
-      cmsData.vaclavTimeline.push({
-        id: 'vaclav-' + Date.now(),
-        period: 'Nové období',
-        title: 'Nová kapitola života',
-        description: 'Krátký popis na stránce...',
-        longDescription: 'Podrobné vyprávění v okně po kliknutí...',
-        photos: [{ url: null, caption: 'Popisek fotografie' }]
-      });
-      markDirty(true);
-      renderVaclavContentTab(ws);
-    });
-    renderTimelineCardsEditor(
-      document.getElementById('vaclav-timeline-list'),
-      cmsData.vaclavTimeline,
-      'period',
-      false,
-      () => renderVaclavContentTab(ws)
-    );
-  } else {
-    sub.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-        <p style="color:var(--text-secondary);">Každému rámečku můžete nastavit umístění (<strong>Vpravo nahoře vedle úvodu</strong> nebo <strong>Vlevo podél časové osy</strong>) a režim po rozkliknutí (<strong>Fotografie + text vpravo</strong> nebo <strong>Pouze fotogalerie</strong>).</p>
-        <button type="button" id="btn-add-vaclav-photo" class="cms-btn cms-btn-primary">+ Přidat zarámovanou fotografii</button>
-      </div>
-      <div id="vaclav-photos-list"></div>
-    `;
-
-    document.getElementById('btn-add-vaclav-photo')?.addEventListener('click', () => {
-      cmsData.vaclavInteractivePhotos.push({
-        id: 'vp-photo-' + Date.now(),
-        placement: 'timeline-left',
-        mode: 'split',
-        title: 'Nová zarámovaná fotografie',
-        date: 'Rok / období',
-        author: 'Rodinný archiv',
-        caption: 'Krátký popisek pod rámečkem',
-        description: 'Delší popis zobrazovaný v pravém panelu po rozkliknutí...',
-        photos: [{ url: null, caption: 'Hlavní snímek' }]
-      });
-      markDirty(true);
-      renderVaclavContentTab(ws);
-    });
-
-    const listEl = document.getElementById('vaclav-photos-list');
-    listEl.innerHTML = cmsData.vaclavInteractivePhotos.map((item, idx) => `
-      <div class="cms-card">
-        <div class="cms-card-header">
-          <span class="cms-card-title">${idx + 1}. ${escapeHtml(item.title)} (${item.placement === 'top-right' ? 'Vpravo nahoře' : 'Vlevo u osy'})</span>
-          <div class="cms-card-controls">
-            <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-vp-move="-1" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''}>↑</button>
-            <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-vp-move="1" data-idx="${idx}" ${idx === cmsData.vaclavInteractivePhotos.length - 1 ? 'disabled' : ''}>↓</button>
-            <button type="button" class="cms-btn cms-btn-danger cms-btn-sm" data-vp-del="${idx}">🗑️ Smazat rámeček</button>
-          </div>
-        </div>
-
-        <div class="cms-grid-2">
-          <div class="cms-field">
-            <label>Umístění na stránce</label>
-            <select class="cms-select" data-vp-field="placement" data-idx="${idx}">
-              <option value="top-right" ${item.placement === 'top-right' ? 'selected' : ''}>Vpravo nahoře (2 větší fotky vedle hlavního textu)</option>
-              <option value="timeline-left" ${item.placement === 'timeline-left' ? 'selected' : ''}>Vlevo podél časové osy</option>
-            </select>
-          </div>
-          <div class="cms-field">
-            <label>Zobrazení po rozkliknutí (typ vyskakovacího okna)</label>
-            <select class="cms-select" data-vp-field="mode" data-idx="${idx}">
-              <option value="split" ${item.mode === 'split' ? 'selected' : ''}>Verze 1: Fotokarusel vlevo + textový popis vpravo</option>
-              <option value="carousel" ${item.mode === 'carousel' ? 'selected' : ''}>Verze 2: Pouze velký fotokarusel s krátkým popiskem</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="cms-grid-3">
-          <div class="cms-field">
-            <label>Název / Titulek</label>
-            <input type="text" class="cms-input" data-vp-field="title" data-idx="${idx}" value="${escapeHtml(item.title)}" />
-          </div>
-          <div class="cms-field">
-            <label>Datum / Období</label>
-            <input type="text" class="cms-input" data-vp-field="date" data-idx="${idx}" value="${escapeHtml(item.date)}" />
-          </div>
-          <div class="cms-field">
-            <label>Autor / Zdroj</label>
-            <input type="text" class="cms-input" data-vp-field="author" data-idx="${idx}" value="${escapeHtml(item.author || '')}" />
-          </div>
-        </div>
-
-        <div class="cms-field">
-          <label>Popisek pod rámečkem na stránce</label>
-          <input type="text" class="cms-input" data-vp-field="caption" data-idx="${idx}" value="${escapeHtml(item.caption)}" />
-        </div>
-
-        <div class="cms-field">
-          <label>Podrobný text v pravém panelu (pro Verzi 1 – rozdělené okno)</label>
-          <textarea class="cms-textarea" data-vp-field="description" data-idx="${idx}">${escapeHtml(item.description || '')}</textarea>
-        </div>
-
-        ${renderPhotosSubEditorHtml(item.photos || [], `vp-${idx}`)}
-      </div>
-    `).join('');
-
-    listEl.querySelectorAll('[data-vp-field]').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const idx = parseInt(inp.getAttribute('data-idx'), 10);
-        const f = inp.getAttribute('data-vp-field');
-        cmsData.vaclavInteractivePhotos[idx][f] = inp.value;
-        markDirty(true);
-      });
-    });
-
-    listEl.querySelectorAll('[data-vp-move]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.getAttribute('data-idx'), 10);
-        const dir = parseInt(btn.getAttribute('data-vp-move'), 10);
-        const target = idx + dir;
-        if (target < 0 || target >= cmsData.vaclavInteractivePhotos.length) return;
-        const tmp = cmsData.vaclavInteractivePhotos[idx];
-        cmsData.vaclavInteractivePhotos[idx] = cmsData.vaclavInteractivePhotos[target];
-        cmsData.vaclavInteractivePhotos[target] = tmp;
-        markDirty(true);
-        renderVaclavContentTab(ws);
-      });
-    });
-
-    listEl.querySelectorAll('[data-vp-del]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.getAttribute('data-vp-del'), 10);
-        if (confirm(`Opravdu smazat rámeček „${cmsData.vaclavInteractivePhotos[idx].title}“?`)) {
-          cmsData.vaclavInteractivePhotos.splice(idx, 1);
-          markDirty(true);
-          renderVaclavContentTab(ws);
-        }
-      });
-    });
-
-    cmsData.vaclavInteractivePhotos.forEach((item, idx) => {
-      if (!Array.isArray(item.photos)) item.photos = [];
-      wirePhotosSubEditor(listEl, item.photos, `vp-${idx}`, () => renderVaclavContentTab(ws));
-    });
-  }
-}
-
-// ==========================================================================
-// TAB 4: Archiv a multimédia (archiveItems)
-// ==========================================================================
-function renderArchiveTab(ws) {
-  const filtered = archiveFilterCategory === 'all'
-    ? cmsData.archiveItems.map((item, idx) => ({ item, idx }))
-    : cmsData.archiveItems.map((item, idx) => ({ item, idx })).filter(x => x.item.category === archiveFilterCategory);
-
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>4. Archiv a multimédia (${cmsData.archiveItems.length} položek)</h2>
-        <p>Přidávejte a upravujte archivní kroniky, PDF dokumenty, notové záznamy, zvukové nahrávky a fotogalerie.</p>
-      </div>
-      <button type="button" id="btn-add-archive-item" class="cms-btn cms-btn-primary">+ Přidat položku do archivu</button>
-    </div>
-
-    <div class="cms-subtabs">
-      <button type="button" class="cms-subtab-btn ${archiveFilterCategory === 'all' ? 'active' : ''}" data-acat="all">Vše (${cmsData.archiveItems.length})</button>
-      <button type="button" class="cms-subtab-btn ${archiveFilterCategory === 'kroniky' ? 'active' : ''}" data-acat="kroniky">Kroniky</button>
-      <button type="button" class="cms-subtab-btn ${archiveFilterCategory === 'dokumenty' ? 'active' : ''}" data-acat="dokumenty">Diplomy a dokumenty</button>
-      <button type="button" class="cms-subtab-btn ${archiveFilterCategory === 'noty' ? 'active' : ''}" data-acat="noty">Notové záznamy</button>
-      <button type="button" class="cms-subtab-btn ${archiveFilterCategory === 'hudba' ? 'active' : ''}" data-acat="hudba">Hudba a rozhlas</button>
-      <button type="button" class="cms-subtab-btn ${archiveFilterCategory === 'fotografie' ? 'active' : ''}" data-acat="fotografie">Fotografie</button>
-    </div>
-
-    <div id="archive-editor-list"></div>
-  `;
-
-  ws.querySelectorAll('[data-acat]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      archiveFilterCategory = btn.getAttribute('data-acat');
-      renderArchiveTab(ws);
-    });
-  });
-
-  document.getElementById('btn-add-archive-item')?.addEventListener('click', () => {
-    cmsData.archiveItems.unshift({
-      id: 'doc-' + Date.now(),
-      category: archiveFilterCategory === 'all' ? 'fotografie' : archiveFilterCategory,
-      mediaType: 'photo',
-      tileSize: 'normal',
-      pages: ['main', 'lekarna', 'vaclav'],
-      title: 'Nová archivní položka',
-      date: 'Rok / období',
-      author: 'Rodinný archiv',
-      description: 'Popis archivního materiálu...',
-      transcription: '',
-      photos: [{ url: null, caption: 'Popisek snímku' }]
-    });
-    markDirty(true);
-    renderArchiveTab(ws);
-    showToast('Přidána nová položka na začátek archivu.');
-  });
-
-  const listEl = document.getElementById('archive-editor-list');
-  listEl.innerHTML = filtered.map(({ item, idx }) => {
-    const pages = Array.isArray(item.pages) ? item.pages : ['main'];
-    return `
-      <div class="cms-card">
-        <div class="cms-card-header">
-          <span class="cms-card-title">${escapeHtml(item.title)} <small style="font-weight:400; color:var(--text-secondary);">(${escapeHtml(item.category)} • ${escapeHtml(item.mediaType)})</small></span>
-          <div class="cms-card-controls">
-            <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-arch-move="-1" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''}>↑</button>
-            <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-arch-move="1" data-idx="${idx}" ${idx === cmsData.archiveItems.length - 1 ? 'disabled' : ''}>↓</button>
-            <button type="button" class="cms-btn cms-btn-danger cms-btn-sm" data-arch-del="${idx}">🗑️ Smazat z archivu</button>
-          </div>
-        </div>
-
-        <div class="cms-grid-3">
-          <div class="cms-field">
-            <label>Název položky</label>
-            <input type="text" class="cms-input" data-arch-field="title" data-idx="${idx}" value="${escapeHtml(item.title)}" />
-          </div>
-          <div class="cms-field">
-            <label>Datum / Období</label>
-            <input type="text" class="cms-input" data-arch-field="date" data-idx="${idx}" value="${escapeHtml(item.date)}" />
-          </div>
-          <div class="cms-field">
-            <label>Autor / Zdroj</label>
-            <input type="text" class="cms-input" data-arch-field="author" data-idx="${idx}" value="${escapeHtml(item.author)}" />
-          </div>
-        </div>
-
-        <div class="cms-grid-3">
-          <div class="cms-field">
-            <label>Kategorie filtru</label>
-            <select class="cms-select" data-arch-field="category" data-idx="${idx}">
-              <option value="kroniky" ${item.category === 'kroniky' ? 'selected' : ''}>Kroniky a knihy</option>
-              <option value="dokumenty" ${item.category === 'dokumenty' ? 'selected' : ''}>Diplomy a dokumenty</option>
-              <option value="noty" ${item.category === 'noty' ? 'selected' : ''}>Notové záznamy</option>
-              <option value="hudba" ${item.category === 'hudba' ? 'selected' : ''}>Hudba a rozhlas</option>
-              <option value="fotografie" ${item.category === 'fotografie' ? 'selected' : ''}>Fotografie</option>
-            </select>
-          </div>
-          <div class="cms-field">
-            <label>Typ média po otevření</label>
-            <select class="cms-select" data-arch-type="${idx}">
-              <option value="photo" ${item.mediaType === 'photo' ? 'selected' : ''}>🖼️ Fotogalerie (karusel snímků)</option>
-              <option value="pdf" ${item.mediaType === 'pdf' ? 'selected' : ''}>📄 PDF Dokument / Partitura / Kronika</option>
-              <option value="audio" ${item.mediaType === 'audio' ? 'selected' : ''}>🎵 Audio nahrávka (MP3 / WMA / WAV)</option>
-            </select>
-          </div>
-          <div class="cms-field">
-            <label>Velikost dlaždice v koláži</label>
-            <select class="cms-select" data-arch-field="tileSize" data-idx="${idx}">
-              <option value="normal" ${item.tileSize === 'normal' ? 'selected' : ''}>Normální (čtvercová)</option>
-              <option value="wide" ${item.tileSize === 'wide' ? 'selected' : ''}>Široká (obdélník naležato)</option>
-              <option value="tall" ${item.tileSize === 'tall' ? 'selected' : ''}>Vysoká (obdélník nastojato)</option>
-              <option value="large" ${item.tileSize === 'large' ? 'selected' : ''}>Velká (zvýrazněná)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="cms-grid-2">
-          <div class="cms-field">
-            <label>Zobrazit v archivu na těchto stránkách:</label>
-            <div class="cms-checkbox-row">
-              <label class="cms-checkbox-label">
-                <input type="checkbox" data-arch-page="main" data-idx="${idx}" ${pages.includes('main') ? 'checked' : ''} />
-                Úvodní stránka
-              </label>
-              <label class="cms-checkbox-label">
-                <input type="checkbox" data-arch-page="lekarna" data-idx="${idx}" ${pages.includes('lekarna') ? 'checked' : ''} />
-                Historie lékárny
-              </label>
-              <label class="cms-checkbox-label">
-                <input type="checkbox" data-arch-page="vaclav" data-idx="${idx}" ${pages.includes('vaclav') ? 'checked' : ''} />
-                PhMr. Václav Pokorný
-              </label>
-            </div>
-          </div>
-          <div class="cms-field">
-            <label>Náhledový obrázek dlaždice v koláži (volitelné)</label>
-            <div class="cms-input-with-btn">
-              <input type="text" class="cms-input" data-arch-field="thumbnailUrl" data-idx="${idx}" value="${escapeHtml(item.thumbnailUrl || '')}" placeholder="Cesta k obrázku (nebo se použije 1. fotka)" />
-              <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-arch-pick="thumbnailUrl" data-pick-type="image" data-idx="${idx}">📁 Vybrat</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="cms-field">
-          <label>Popis archiválie (zobrazený v pravém panelu po rozkliknutí)</label>
-          <textarea class="cms-textarea" data-arch-field="description" data-idx="${idx}">${escapeHtml(item.description)}</textarea>
-        </div>
-
-        ${item.mediaType === 'pdf' ? `
-          <div class="cms-photos-box">
-            <strong>📄 Nastavení PDF dokumentu</strong>
-            <div class="cms-grid-3" style="margin-top:0.65rem;">
-              <div class="cms-field">
-                <label>Skutečný soubor PDF (volitelné)</label>
-                <div class="cms-input-with-btn">
-                  <input type="text" class="cms-input" data-arch-field="pdfUrl" data-idx="${idx}" value="${escapeHtml(item.pdfUrl || '')}" placeholder="např. uploads/kronika.pdf" />
-                  <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-arch-pick="pdfUrl" data-pick-type="pdf" data-idx="${idx}">📁 Nahrát PDF</button>
-                </div>
-              </div>
-              <div class="cms-field">
-                <label>Zobrazovaný název souboru v liště</label>
-                <input type="text" class="cms-input" data-arch-field="fileLabel" data-idx="${idx}" value="${escapeHtml(item.fileLabel || '')}" />
-              </div>
-              <div class="cms-field">
-                <label>Počet stran</label>
-                <input type="number" class="cms-input" data-arch-field="pageCount" data-idx="${idx}" value="${escapeHtml(item.pageCount || 1)}" />
-              </div>
-            </div>
-            <div class="cms-field" style="margin-bottom:0;">
-              <label>Ukázkový citát na listu (pokud není nahráno PDF)</label>
-              <input type="text" class="cms-input" data-arch-field="transcription" data-idx="${idx}" value="${escapeHtml(item.transcription || '')}" />
-            </div>
-          </div>
-        ` : ''}
-
-        ${item.mediaType === 'audio' ? `
-          <div class="cms-photos-box">
-            <strong>🎵 Nastavení zvukové nahrávky</strong>
-            <div class="cms-grid-2" style="margin-top:0.65rem;">
-              <div class="cms-field" style="margin-bottom:0;">
-                <label>Soubor nahrávky (MP3, WAV, OGG, WMA)</label>
-                <div class="cms-input-with-btn">
-                  <input type="text" class="cms-input" data-arch-field="audioSrc" data-idx="${idx}" value="${escapeHtml(item.audioSrc || '')}" />
-                  <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-arch-pick="audioSrc" data-pick-type="audio" data-idx="${idx}">📁 Nahrát Audio</button>
-                </div>
-              </div>
-              <div class="cms-field" style="margin-bottom:0;">
-                <label>Délka nahrávky (např. 22:03)</label>
-                <input type="text" class="cms-input" data-arch-field="duration" data-idx="${idx}" value="${escapeHtml(item.duration || '')}" />
-              </div>
-            </div>
-          </div>
-        ` : ''}
-
-        ${item.mediaType === 'photo' ? renderPhotosSubEditorHtml(item.photos || [], `arch-${idx}`) : ''}
-      </div>
-    `;
-  }).join('');
-
-  // Field changes
-  listEl.querySelectorAll('[data-arch-field]').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const idx = parseInt(inp.getAttribute('data-idx'), 10);
-      const field = inp.getAttribute('data-arch-field');
-      cmsData.archiveItems[idx][field] = field === 'pageCount' ? parseInt(inp.value, 10) || 1 : inp.value;
-      markDirty(true);
-    });
-  });
-
-  // Media Type switch
-  listEl.querySelectorAll('[data-arch-type]').forEach(sel => {
-    sel.addEventListener('change', () => {
-      const idx = parseInt(sel.getAttribute('data-arch-type'), 10);
-      cmsData.archiveItems[idx].mediaType = sel.value;
-      if (sel.value === 'photo' && !Array.isArray(cmsData.archiveItems[idx].photos)) {
-        cmsData.archiveItems[idx].photos = [{ url: null, caption: cmsData.archiveItems[idx].title }];
-      }
-      markDirty(true);
-      renderArchiveTab(ws);
-    });
-  });
-
-  // Page Checkboxes
-  listEl.querySelectorAll('[data-arch-page]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const idx = parseInt(cb.getAttribute('data-idx'), 10);
-      const pageKey = cb.getAttribute('data-arch-page');
-      const set = new Set(cmsData.archiveItems[idx].pages || []);
-      if (cb.checked) set.add(pageKey);
-      else set.delete(pageKey);
-      cmsData.archiveItems[idx].pages = Array.from(set);
-      markDirty(true);
-    });
-  });
-
-  // File pickers for PDF / Audio / Thumbnail
-  listEl.querySelectorAll('[data-arch-pick]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-idx'), 10);
-      const field = btn.getAttribute('data-arch-pick');
-      const fType = btn.getAttribute('data-pick-type') || null;
-      openFilePickerModal(fType, (chosenPath) => {
-        cmsData.archiveItems[idx][field] = chosenPath;
-        if (field === 'pdfUrl' && !cmsData.archiveItems[idx].fileLabel) {
-          cmsData.archiveItems[idx].fileLabel = chosenPath.split('/').pop();
-        }
-        markDirty(true);
-        renderArchiveTab(ws);
-      });
-    });
-  });
-
-  // Move / Delete
-  listEl.querySelectorAll('[data-arch-move]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-idx'), 10);
-      const dir = parseInt(btn.getAttribute('data-arch-move'), 10);
-      const target = idx + dir;
-      if (target < 0 || target >= cmsData.archiveItems.length) return;
-      const tmp = cmsData.archiveItems[idx];
-      cmsData.archiveItems[idx] = cmsData.archiveItems[target];
-      cmsData.archiveItems[target] = tmp;
-      markDirty(true);
-      renderArchiveTab(ws);
-    });
-  });
-
-  listEl.querySelectorAll('[data-arch-del]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-arch-del'), 10);
-      if (confirm(`Opravdu smazat archivní položku „${cmsData.archiveItems[idx].title}“?`)) {
-        cmsData.archiveItems.splice(idx, 1);
-        markDirty(true);
-        renderArchiveTab(ws);
-      }
-    });
-  });
-
-  // Photo carousels inside photo archive items
-  filtered.forEach(({ item, idx }) => {
-    if (item.mediaType === 'photo') {
-      if (!Array.isArray(item.photos)) item.photos = [];
-      wirePhotosSubEditor(listEl, item.photos, `arch-${idx}`, () => renderArchiveTab(ws));
-    }
-  });
-}
-
-// ==========================================================================
-// TAB 5: Hudební přehrávač na Úvodu (audioTracks)
-// ==========================================================================
-function renderAudioTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>5. Hudební a rozhlasový přehrávač na Úvodu</h2>
-        <p>Spravujte skladby a rozhlasové pořady v panelu „Hudební a rozhlasový archiv“ na hlavní stránce (zobrazují se první 3 skladby).</p>
-      </div>
-      <button type="button" id="btn-add-track" class="cms-btn cms-btn-primary">+ Přidat nahrávku</button>
-    </div>
-    <div id="audio-tracks-list"></div>
-  `;
-
-  document.getElementById('btn-add-track')?.addEventListener('click', () => {
-    cmsData.audioTracks.push({
-      id: 'track-' + Date.now(),
-      title: 'Nová zvuková nahrávka',
-      subtitle: 'PhMr. Václav Pokorný',
-      duration: '3:00',
-      src: '',
-      year: 'Rok'
-    });
-    markDirty(true);
-    renderAudioTab(ws);
-  });
-
-  const listEl = document.getElementById('audio-tracks-list');
-  listEl.innerHTML = cmsData.audioTracks.map((t, idx) => `
-    <div class="cms-card">
-      <div class="cms-card-header">
-        <span class="cms-card-title">${idx + 1}. ${escapeHtml(t.title)}</span>
-        <div class="cms-card-controls">
-          <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-tr-move="-1" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''}>↑</button>
-          <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-tr-move="1" data-idx="${idx}" ${idx === cmsData.audioTracks.length - 1 ? 'disabled' : ''}>↓</button>
-          <button type="button" class="cms-btn cms-btn-danger cms-btn-sm" data-tr-del="${idx}">🗑️ Odebrat</button>
-        </div>
-      </div>
-
-      <div class="cms-grid-2">
-        <div class="cms-field">
-          <label>Název skladby / pořadu</label>
-          <input type="text" class="cms-input" data-tr-field="title" data-idx="${idx}" value="${escapeHtml(t.title)}" />
-        </div>
-        <div class="cms-field">
-          <label>Podtitulek / Interpret</label>
-          <input type="text" class="cms-input" data-tr-field="subtitle" data-idx="${idx}" value="${escapeHtml(t.subtitle)}" />
-        </div>
-      </div>
-
-      <div class="cms-grid-3">
-        <div class="cms-field">
-          <label>Zvukový soubor (MP3 / WAV / WMA)</label>
-          <div class="cms-input-with-btn">
-            <input type="text" class="cms-input" data-tr-field="src" data-idx="${idx}" value="${escapeHtml(t.src)}" />
-            <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-tr-pick="${idx}">📁 Vybrat</button>
-          </div>
-        </div>
-        <div class="cms-field">
-          <label>Rok</label>
-          <input type="text" class="cms-input" data-tr-field="year" data-idx="${idx}" value="${escapeHtml(t.year)}" />
-        </div>
-        <div class="cms-field">
-          <label>Stopáž (např. 22:03)</label>
-          <input type="text" class="cms-input" data-tr-field="duration" data-idx="${idx}" value="${escapeHtml(t.duration)}" />
-        </div>
-      </div>
-    </div>
-  `).join('');
-
-  listEl.querySelectorAll('[data-tr-field]').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const idx = parseInt(inp.getAttribute('data-idx'), 10);
-      const f = inp.getAttribute('data-tr-field');
-      cmsData.audioTracks[idx][f] = inp.value;
-      markDirty(true);
-    });
-  });
-
-  listEl.querySelectorAll('[data-tr-pick]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-tr-pick'), 10);
-      openFilePickerModal('audio', (chosenPath) => {
-        cmsData.audioTracks[idx].src = chosenPath;
-        markDirty(true);
-        renderAudioTab(ws);
-      });
-    });
-  });
-
-  listEl.querySelectorAll('[data-tr-move]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-idx'), 10);
-      const dir = parseInt(btn.getAttribute('data-tr-move'), 10);
-      const target = idx + dir;
-      if (target < 0 || target >= cmsData.audioTracks.length) return;
-      const tmp = cmsData.audioTracks[idx];
-      cmsData.audioTracks[idx] = cmsData.audioTracks[target];
-      cmsData.audioTracks[target] = tmp;
-      markDirty(true);
-      renderAudioTab(ws);
-    });
-  });
-
-  listEl.querySelectorAll('[data-tr-del]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.getAttribute('data-tr-del'), 10);
-      if (confirm(`Odebrat skladbu „${cmsData.audioTracks[idx].title}“?`)) {
-        cmsData.audioTracks.splice(idx, 1);
-        markDirty(true);
-        renderAudioTab(ws);
-      }
-    });
-  });
-}
-
-// ==========================================================================
-// TAB 6: Interaktivní rodokmen a lékárníci (familyTree)
-// ==========================================================================
-function flattenTreeMembers(node, parentNode = null, isSpouse = false, acc = []) {
-  if (!node) return acc;
-  acc.push({ member: node, parentNode, isSpouse });
-  if (node.spouse) {
-    acc.push({ member: node.spouse, parentNode: node, isSpouse: true });
-  }
-  if (Array.isArray(node.children)) {
-    node.children.forEach(child => flattenTreeMembers(child, node, false, acc));
-  }
-  return acc;
-}
-
-function renderTreeTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>6. Interaktivní rodokmen a posloupnost lékárníků</h2>
-        <p>Upravujte medailonky osob v rodokmenu (jména, data, životopisy, fotografie), přidávejte potomky nebo upravte pás 6 generací lékárníků.</p>
-      </div>
-    </div>
-
-    <div class="cms-subtabs">
-      <button type="button" class="cms-subtab-btn ${activeTreeSubtab === 'members' ? 'active' : ''}" data-tsub="members">🌳 Osoby v rodokmenu</button>
-      <button type="button" class="cms-subtab-btn ${activeTreeSubtab === 'lineage' ? 'active' : ''}" data-tsub="lineage">🏛️ Pás 6 generací lékárníků a box Brožíkových</button>
-    </div>
-
-    <div id="tree-subcontent"></div>
-  `;
-
-  ws.querySelectorAll('[data-tsub]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTreeSubtab = btn.getAttribute('data-tsub');
-      renderTreeTab(ws);
-    });
-  });
-
-  const sub = document.getElementById('tree-subcontent');
-  if (activeTreeSubtab === 'lineage') {
-    const line = cmsData.familyTree.pharmacistsLine || [];
-    const brozik = cmsData.familyTree.brozikConnection || {};
-    sub.innerHTML = `
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Box: Větev Brožíkových z Plzně (na stránce Historie lékárny)</span></div>
-        <div class="cms-grid-2">
-          <div class="cms-field">
-            <label>Nadpis boxu</label>
-            <input type="text" class="cms-input" id="brozik-title" value="${escapeHtml(brozik.title || '')}" />
-          </div>
-          <div class="cms-field">
-            <label>Jméno osobnosti (odkaz do rodokmenu)</label>
-            <input type="text" class="cms-input" id="brozik-spouse" value="${escapeHtml(brozik.spouse || '')}" />
-          </div>
-        </div>
-        <div class="cms-field">
-          <label>Text popisu</label>
-          <textarea class="cms-textarea" id="brozik-details">${escapeHtml(brozik.details || '')}</textarea>
-        </div>
-      </div>
-
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">Posloupnost 6 generací příborských lékárníků</span></div>
-        ${line.map((node, idx) => `
-          <div class="cms-grid-3" style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid #f0e8da;">
-            <div class="cms-field" style="margin-bottom:0;">
-              <label>Generace</label>
-              <input type="number" class="cms-input" data-line-field="gen" data-idx="${idx}" value="${escapeHtml(node.gen)}" />
-            </div>
-            <div class="cms-field" style="margin-bottom:0;">
-              <label>Jméno lékárníka</label>
-              <input type="text" class="cms-input" data-line-field="name" data-idx="${idx}" value="${escapeHtml(node.name)}" />
-            </div>
-            <div class="cms-field" style="margin-bottom:0;">
-              <label>Role / Popisek</label>
-              <input type="text" class="cms-input" data-line-field="role" data-idx="${idx}" value="${escapeHtml(node.role)}" />
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-
-    sub.querySelector('#brozik-title')?.addEventListener('input', (e) => {
-      cmsData.familyTree.brozikConnection.title = e.target.value;
-      markDirty(true);
-    });
-    sub.querySelector('#brozik-spouse')?.addEventListener('input', (e) => {
-      cmsData.familyTree.brozikConnection.spouse = e.target.value;
-      markDirty(true);
-    });
-    sub.querySelector('#brozik-details')?.addEventListener('input', (e) => {
-      cmsData.familyTree.brozikConnection.details = e.target.value;
-      markDirty(true);
-    });
-
-    sub.querySelectorAll('[data-line-field]').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const idx = parseInt(inp.getAttribute('data-idx'), 10);
-        const f = inp.getAttribute('data-line-field');
-        cmsData.familyTree.pharmacistsLine[idx][f] = f === 'gen' ? parseInt(inp.value, 10) || 1 : inp.value;
-        markDirty(true);
-      });
-    });
-    return;
-  }
-
-  // Tree Members Editor
-  const allEntries = flattenTreeMembers(cmsData.familyTree.treeRoot);
-  let activeEntry = allEntries.find(x => x.member.id === selectedPersonId) || allEntries[0];
-  if (activeEntry) selectedPersonId = activeEntry.member.id;
-  const p = activeEntry?.member;
-
-  sub.innerHTML = `
-    <div class="cms-tree-split">
-      <div class="cms-person-list">
-        <div style="padding:0.4rem 0.5rem 0.6rem; font-weight:700; font-size:0.8rem; color:var(--text-secondary);">
-          Vyberte osobu k úpravě (${allEntries.length}):
-        </div>
-        ${allEntries.map(({ member, isSpouse }) => `
-          <button type="button" class="cms-person-item ${member.id === selectedPersonId ? 'active' : ''}" data-select-person="${member.id}">
-            <span>${isSpouse ? '⚭ ' : ''}${escapeHtml(member.name)}</span>
-            <span class="cms-person-gen-badge">${member.gen}. gen</span>
-          </button>
-        `).join('')}
-      </div>
-
-      <div id="cms-person-detail-editor">
-        ${p ? `
-          <div class="cms-card">
-            <div class="cms-card-header">
-              <span class="cms-card-title">${escapeHtml(p.name)} (${p.gen}. generace)</span>
-              <div class="cms-card-controls">
-                ${!activeEntry.isSpouse ? `
-                  <button type="button" class="cms-btn cms-btn-light cms-btn-sm" id="btn-tree-add-child">+ Přidat dítě</button>
-                  ${!p.spouse ? `<button type="button" class="cms-btn cms-btn-light cms-btn-sm" id="btn-tree-add-spouse">+ Přidat manžela/manželku</button>` : ''}
-                ` : ''}
-                ${activeEntry.parentNode ? `
-                  <button type="button" class="cms-btn cms-btn-danger cms-btn-sm" id="btn-tree-delete-person">🗑️ Odebrat osobu</button>
-                ` : ''}
-              </div>
-            </div>
-
-            <div class="cms-grid-3">
-              <div class="cms-field">
-                <label>Jméno a tituly</label>
-                <input type="text" class="cms-input" data-p-field="name" value="${escapeHtml(p.name)}" />
-              </div>
-              <div class="cms-field">
-                <label>Generace (číslo)</label>
-                <input type="number" class="cms-input" data-p-field="gen" value="${escapeHtml(p.gen)}" />
-              </div>
-              <div class="cms-field">
-                <label>Barevná větev karty</label>
-                <select class="cms-select" data-p-field="branch">
-                  <option value="pharmacist" ${p.branch === 'pharmacist' ? 'selected' : ''}>Zelená – Lékárnická linie</option>
-                  <option value="brozik" ${p.branch === 'brozik' ? 'selected' : ''}>Zlatá – Větev Brožíkových</option>
-                  <option value="family" ${p.branch === 'family' ? 'selected' : ''}>Olivová – Rodinná větev</option>
-                  <option value="modern" ${p.branch === 'modern' ? 'selected' : ''}>Olivová – Nejmladší generace</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="cms-grid-3">
-              <div class="cms-field">
-                <label>Role / Povolání (zobrazeno na kartě i v záhlaví okna)</label>
-                <input type="text" class="cms-input" data-p-field="role" value="${escapeHtml(p.role)}" />
-              </div>
-              <div class="cms-field">
-                <label>Datum a místo narození</label>
-                <input type="text" class="cms-input" data-p-field="birthDate" value="${escapeHtml(p.birthDate || '')}" />
-              </div>
-              <div class="cms-field">
-                <label>Datum a místo úmrtí (nebo —)</label>
-                <input type="text" class="cms-input" data-p-field="deathDate" value="${escapeHtml(p.deathDate || '')}" />
-              </div>
-            </div>
-
-            <div class="cms-field">
-              <label>Životopis a působení (zobrazeno ve velkém poli Životopis v okně osobnosti)</label>
-              <textarea class="cms-textarea tall" data-p-field="description">${escapeHtml(p.description || '')}</textarea>
-            </div>
-
-            ${renderPhotosSubEditorHtml(p.photos || [], 'person-photos')}
-          </div>
-        ` : ''}
-      </div>
-    </div>
-  `;
-
-  sub.querySelectorAll('[data-select-person]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectedPersonId = btn.getAttribute('data-select-person');
-      renderTreeTab(ws);
-    });
-  });
-
-  if (!p) return;
-
-  const detailEl = document.getElementById('cms-person-detail-editor');
-  detailEl.querySelectorAll('[data-p-field]').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const f = inp.getAttribute('data-p-field');
-      p[f] = f === 'gen' ? parseInt(inp.value, 10) || 1 : inp.value;
-      markDirty(true);
-    });
-  });
-
-  if (!Array.isArray(p.photos)) p.photos = [];
-  wirePhotosSubEditor(detailEl, p.photos, 'person-photos', () => renderTreeTab(ws));
-
-  // Add Child
-  document.getElementById('btn-tree-add-child')?.addEventListener('click', () => {
-    if (!Array.isArray(p.children)) p.children = [];
-    const newId = 'osoba-' + Date.now();
-    const newGen = (parseInt(p.gen, 10) || 1) + 1;
-    p.children.push({
-      id: newId,
-      gen: newGen,
-      name: 'Nový člen rodiny',
-      role: `${newGen}. gen. • Člen rodiny`,
-      branch: newGen >= 8 ? 'modern' : 'family',
-      birthDate: '* doplnit datum',
-      deathDate: '—',
-      photo: null,
-      photoCaption: 'Fotografie',
-      photos: [{ url: null, caption: 'Portrétní fotografie' }],
-      description: 'Doplňte životopisné údaje...',
-      children: []
-    });
-    selectedPersonId = newId;
-    markDirty(true);
-    renderTreeTab(ws);
-    showToast('Přidán nový potomek v rodokmenu.');
-  });
-
-  // Add Spouse
-  document.getElementById('btn-tree-add-spouse')?.addEventListener('click', () => {
-    const newId = 'manzel-' + Date.now();
-    p.spouse = {
-      id: newId,
-      gen: p.gen,
-      name: 'Jméno manžela / manželky',
-      role: 'Manžel / Manželka',
-      branch: 'family',
-      birthDate: '* doplnit datum',
-      deathDate: '—',
-      photo: null,
-      photoCaption: 'Fotografie',
-      photos: [{ url: null, caption: 'Portrétní fotografie' }],
-      description: 'Doplňte životopisné údaje...'
-    };
-    selectedPersonId = newId;
-    markDirty(true);
-    renderTreeTab(ws);
-    showToast('Přidán manželský partner.');
-  });
-
-  // Delete Person
-  document.getElementById('btn-tree-delete-person')?.addEventListener('click', () => {
-    if (!confirm(`Opravdu chcete z rodokmenu odebrat osobu „${p.name}“?`)) return;
-    if (activeEntry.isSpouse && activeEntry.parentNode) {
-      delete activeEntry.parentNode.spouse;
-      selectedPersonId = activeEntry.parentNode.id;
-    } else if (activeEntry.parentNode && Array.isArray(activeEntry.parentNode.children)) {
-      activeEntry.parentNode.children = activeEntry.parentNode.children.filter(ch => ch.id !== p.id);
-      selectedPersonId = activeEntry.parentNode.id;
-    }
-    markDirty(true);
-    renderTreeTab(ws);
-  });
-}
-
-// ==========================================================================
-// TAB 7: Správce souborů (Media Library)
-// ==========================================================================
-function renderMediaLibraryTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>7. Správce souborů (Obrázky, PDF dokumenty, Audio)</h2>
-        <p>Nahrávejte nové soubory z počítače do složky <code>uploads/</code> nebo spravujte stávající soubory na serveru.</p>
-      </div>
-    </div>
-
-    <div class="cms-card">
-      <div class="cms-upload-dropzone">
-        <div class="cms-upload-dropzone-info">
-          <strong>☁️ Nahrát nový soubor na web</strong>
-          <span>Vyberte z počítače fotografii (JPG, PNG, WEBP), dokument (PDF) nebo nahrávku (MP3, WAV, OGG, WMA)</span>
-        </div>
-        <label class="cms-btn cms-btn-primary">
-          + Nahrát soubor z počítače
-          <input type="file" id="media-tab-file-input" hidden />
-        </label>
-      </div>
-    </div>
-
-    <div class="cms-card">
-      <div class="cms-card-header">
-        <span class="cms-card-title">Soubory uložené na serveru (${serverFiles.length})</span>
-      </div>
-      <div class="cms-file-picker-grid">
-        ${serverFiles.length === 0 ? `<p style="color:var(--text-secondary);">Zatím nebyly načteny žádné soubory nebo nejste připojeni k serveru.</p>` : ''}
-        ${serverFiles.map(f => renderMediaCardHtml(f, false)).join('')}
-      </div>
-    </div>
-  `;
-
-  document.getElementById('media-tab-file-input')?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    await uploadFileToServer(file, false);
-    renderMediaLibraryTab(ws);
-  });
-
-  ws.querySelectorAll('[data-copy-path]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pathStr = btn.getAttribute('data-copy-path');
-      navigator.clipboard?.writeText(pathStr);
-      showToast(`Cesta zkopírována: ${pathStr}`);
-    });
-  });
-
-  ws.querySelectorAll('[data-del-file]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const pathStr = btn.getAttribute('data-del-file');
-      if (!confirm(`Opravdu smazat soubor „${pathStr}“ ze serveru?`)) return;
-      try {
-        const res = await fetch('api.php?action=delete_file', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken
-          },
-          body: JSON.stringify({ path: pathStr })
-        });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          serverFiles = data.files || [];
-          renderMediaLibraryTab(ws);
-          showToast('Soubor byl smazán.');
-        } else {
-          alert(data.error || 'Chyba při mazání souboru.');
-        }
-      } catch (err) {
-        alert('Chyba spojení se serverem.');
-      }
-    });
-  });
-}
-
-function renderMediaCardHtml(f, isPickerMode) {
-  const icon = f.type === 'image' ? '🖼️' : f.type === 'pdf' ? '📄' : f.type === 'audio' ? '🎵' : '📁';
-  const sizeKb = Math.round((f.size || 0) / 1024);
-  return `
-    <div class="cms-file-card">
-      <div>
-        <div class="cms-file-preview">
-          ${f.type === 'image' ? `<img src="${escapeHtml(f.path)}" alt="${escapeHtml(f.name)}" />` : icon}
-        </div>
-        <div class="cms-file-meta">
-          <div class="cms-file-name">${escapeHtml(f.name)}</div>
-          <div class="cms-file-sub">${escapeHtml(f.folder)}/ • ${sizeKb} KB</div>
-        </div>
-      </div>
-      <div class="cms-file-actions">
-        ${isPickerMode
-          ? `<button type="button" class="cms-btn cms-btn-primary cms-btn-sm" style="width:100%;" data-choose-file="${escapeHtml(f.path)}">✓ Vybrat tento soubor</button>`
-          : `
-            <button type="button" class="cms-btn cms-btn-light cms-btn-sm" data-copy-path="${escapeHtml(f.path)}">📋 Kopírovat cestu</button>
-            ${f.folder === 'uploads' ? `<button type="button" class="cms-btn cms-btn-danger cms-btn-sm" data-del-file="${escapeHtml(f.path)}">🗑️</button>` : ''}
-          `
-        }
-      </div>
-    </div>
-  `;
-}
-
-// ==========================================================================
-// Universal File Picker & Uploader Modal
-// ==========================================================================
-function openFilePickerModal(filterType, onSelectCallback) {
-  currentFilePickerFilter = filterType;
-  currentFilePickerCallback = onSelectCallback;
-  const modal = document.getElementById('cms-file-modal');
-  const statusEl = document.getElementById('cms-file-modal-status');
-  if (statusEl) statusEl.hidden = true;
-  renderFilePickerModalList();
-  modal.hidden = false;
-}
-
-function closeFilePickerModal() {
-  document.getElementById('cms-file-modal').hidden = true;
-  currentFilePickerCallback = null;
-}
-
-function renderFilePickerModalList() {
-  const listEl = document.getElementById('cms-file-modal-list');
-  if (!listEl) return;
-  const filtered = currentFilePickerFilter
-    ? serverFiles.filter(f => f.type === currentFilePickerFilter)
-    : serverFiles;
-
-  if (filtered.length === 0) {
-    listEl.innerHTML = `<p style="color:var(--text-secondary);">Žádné odpovídající soubory zatím nejsou nahrány. Nahrajte nový soubor tlačítkem výše.</p>`;
-    return;
-  }
-
-  listEl.innerHTML = filtered.map(f => renderMediaCardHtml(f, true)).join('');
-  listEl.querySelectorAll('[data-choose-file]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pathStr = btn.getAttribute('data-choose-file');
-      if (currentFilePickerCallback) currentFilePickerCallback(pathStr);
-      closeFilePickerModal();
-    });
-  });
-}
-
-async function uploadFileToServer(file, autoSelectInModal) {
-  const statusEl = document.getElementById('cms-file-modal-status');
-  if (statusEl) {
-    statusEl.textContent = `⏳ Nahrávám soubor ${file.name}...`;
-    statusEl.hidden = false;
-  }
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const res = await fetch('api.php?action=upload', {
-      method: 'POST',
-      headers: {
-        'X-CSRF-Token': csrfToken
-      },
-      body: formData
-    });
-    const data = await res.json();
-    if (res.ok && data.ok) {
-      serverFiles = data.files || serverFiles;
-      showToast(`✓ Soubor ${data.name} byl nahrán.`);
-      if (autoSelectInModal && currentFilePickerCallback) {
-        currentFilePickerCallback(data.path);
-        closeFilePickerModal();
+  function markDirty(state = true, draftSaved = hasUnpublishedDraft) {
+    isDirty = state;
+    hasUnpublishedDraft = draftSaved;
+    try {
+      localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(SITE_DATA));
+    } catch (e) {}
+
+    const statusEl = document.getElementById('cms-save-status');
+    if (statusEl) {
+      if (isDirty) {
+        statusEl.textContent = '● Neuložené úpravy';
+        statusEl.className = 'cms-save-status dirty';
+      } else if (hasUnpublishedDraft) {
+        statusEl.textContent = '📝 Uloženo jako koncept';
+        statusEl.className = 'cms-save-status dirty';
       } else {
-        renderFilePickerModalList();
+        statusEl.textContent = '✓ Publikováno naživo';
+        statusEl.className = 'cms-save-status saved';
       }
-    } else {
-      alert('Chyba při nahrávání: ' + (data.error || 'Neznámá chyba'));
     }
-  } catch (err) {
-    alert('Nepodařilo se nahrát soubor. Ujistěte se, že běží server.');
-  } finally {
-    if (statusEl) statusEl.hidden = true;
+    updateLastSaveTimerDisplay();
   }
-}
 
-// ==========================================================================
-// TAB 8: Nastavení a změna hesla
-// ==========================================================================
-function renderSettingsTab(ws) {
-  ws.innerHTML = `
-    <div class="cms-section-header">
-      <div>
-        <h2>8. Nastavení administrace a změna hesla</h2>
-        <p>Zde můžete změnit přístupové heslo do redakčního systému nebo zkontrolovat informace o nasazení na webhosting.</p>
+  function renderCmsTopBar() {
+    if (document.getElementById('cms-top-bar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'cms-top-bar';
+    bar.className = 'cms-top-bar';
+    bar.setAttribute('data-ui-panel', 'true');
+    bar.innerHTML = `
+      <div class="cms-top-left">
+        <span class="cms-mode-badge">✏️ Editor webu (CMS)</span>
+        <span id="cms-save-status" class="cms-save-status saved">✓ Publikováno naživo</span>
+        <span id="cms-last-save-timer" class="cms-last-save-timer"></span>
       </div>
-    </div>
-
-    <div class="cms-grid-2">
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">🔑 Změna přístupového hesla</span></div>
-        <form id="cms-password-change-form">
-          <div class="cms-field">
-            <label>Nové heslo (minimálně 4 znaky)</label>
-            <input type="password" id="new-admin-pwd" class="cms-input" required minlength="4" placeholder="Zadejte nové heslo..." />
-          </div>
-          <div class="cms-field">
-            <label>Potvrzení nového hesla</label>
-            <input type="password" id="new-admin-pwd-confirm" class="cms-input" required minlength="4" placeholder="Zopakujte nové heslo..." />
-          </div>
-          <button type="submit" class="cms-btn cms-btn-primary">Uložit nové heslo</button>
-        </form>
+      <div class="cms-top-actions">
+        <button type="button" id="cms-btn-live-view" class="cms-btn cms-btn-outline" title="Přepnout na veřejný pohled stránky">
+          👁️ Veřejný web
+        </button>
+        <button type="button" id="cms-btn-backups" class="cms-btn cms-btn-outline" title="Zobrazit historii všech předchozích uložení a obnovit libovolnou verzi">
+          🕒 Historie uložení
+        </button>
+        <button type="button" id="cms-btn-files" class="cms-btn cms-btn-outline" title="Správa nahraných souborů, složek v /uploads a hesla">
+          📁 Soubory a složky
+        </button>
+        <button type="button" id="cms-btn-save-draft" class="cms-btn cms-btn-primary" title="Uložit rozpracovanou verzi a vytvořit pojmenovanou zálohu">
+          💾 Uložit rozpracované
+        </button>
+        <button type="button" id="cms-btn-publish" class="cms-btn cms-btn-publish" title="Publikovat všechny změny na veřejný web">
+          🚀 Publikovat na web
+        </button>
+        <button type="button" id="cms-btn-logout" class="cms-btn cms-btn-ghost" title="Odhlásit se z CMS">
+          Odhlásit
+        </button>
       </div>
+    `;
+    document.body.prepend(bar);
+    markDirty(false, hasUnpublishedDraft);
 
-      <div class="cms-card">
-        <div class="cms-card-header"><span class="cms-card-title">ℹ️ Návod pro správce a nasazení na český hosting</span></div>
-        <ul style="padding-left:1.2rem; display:flex; flex-direction:column; gap:0.55rem; color:var(--text-secondary);">
-          <li><strong>Adresa administrace:</strong> Kdykoliv otevřete <code>vase-domena.cz/admin.html</code>.</li>
-          <li><strong>Automatické zálohy:</strong> Při každém kliknutí na <em>Uložit a publikovat změny</em> se předchozí verze automaticky uloží do složky <code>data/backups/</code>.</li>
-          <li><strong>Propojení jmen s rodokmenem:</strong> Kdykoliv v textech napíšete jméno člena rodiny (např. <em>Ferdinand Pokorný</em> nebo <em>PhMr. Václav Pokorný</em>), na webu se z něj automaticky stane odkaz do interaktivního rodokmenu.</li>
-          <li><strong>Nasazení na český webhosting (Wedos, Forpsi, Active24):</strong> Stačí nahrát celou složku přes FTP na jakýkoliv standardní PHP hosting – skript <code>api.php</code> se automaticky postará o ukládání i nahrávání souborů.</li>
-        </ul>
-      </div>
-    </div>
-  `;
+    bar.querySelector('#cms-btn-live-view')?.addEventListener('click', () => {
+      handleLeaveCmsOrNavigate(() => {
+        // Auto-organize tree before entering live view
+        clearAllTreeOffsets();
+        sessionStorage.removeItem('pokorny_cms_mode');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('cms');
+        window.location.href = url.toString();
+      });
+    });
 
-  document.getElementById('cms-password-change-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const p1 = document.getElementById('new-admin-pwd').value;
-    const p2 = document.getElementById('new-admin-pwd-confirm').value;
-    if (p1 !== p2) {
-      alert('Zadaná hesla se neshodují.');
+    bar.querySelector('#cms-btn-backups')?.addEventListener('click', () => {
+      openSaveHistoryModal();
+    });
+
+    bar.querySelector('#cms-btn-files')?.addEventListener('click', () => {
+      openFileManagerModal(null, null);
+    });
+
+    bar.querySelector('#cms-btn-save-draft')?.addEventListener('click', () => {
+      promptSaveWithName('draft');
+    });
+
+    bar.querySelector('#cms-btn-publish')?.addEventListener('click', () => {
+      promptSaveWithName('publish');
+    });
+
+    bar.querySelector('#cms-btn-logout')?.addEventListener('click', () => {
+      handleLeaveCmsOrNavigate(async () => {
+        try {
+          await fetch('api.php?action=logout', { credentials: 'same-origin' });
+        } catch (e) {}
+        sessionStorage.removeItem('pokorny_cms_mode');
+        localStorage.removeItem('pokorny_cms_draft_data');
+        const pageName = window.location.pathname.split('/').pop() || 'index.html';
+        window.location.href = `admin.html?return=${encodeURIComponent(pageName)}`;
+      });
+    });
+  }
+
+  function updateKeepNavLinksInCmsMode() {
+    document.querySelectorAll('.site-header a[href]').forEach(a => {
+      const rawHref = a.getAttribute('href') || '';
+      if (rawHref.startsWith('#') || rawHref.startsWith('http')) return;
+      const [pathPart, hashPart] = rawHref.split('#');
+      const base = pathPart.split('?')[0];
+      a.setAttribute('href', `${base}?cms=1${hashPart ? '#' + hashPart : ''}`);
+    });
+  }
+
+  // ==========================================================================
+  // 3. Unsaved Changes Guard (Browser beforeunload + Custom Modal with Time Since Last Save)
+  // ==========================================================================
+  function setupBeforeUnloadGuard() {
+    window.addEventListener('beforeunload', (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = `Máte neuložené úpravy (${formatTimeSinceLastSave()}). Opravdu chcete opustit stránku?`;
+        return e.returnValue;
+      }
+    });
+  }
+
+  function handleLeaveCmsOrNavigate(onProceedCallback) {
+    if (!isDirty) {
+      onProceedCallback();
       return;
     }
+
+    const elapsedStr = lastSavedTimestamp
+      ? `Od posledního uložení uplynulo: <strong>${formatTimeSinceLastSave()}</strong>`
+      : 'V této relaci jste změny <strong>zatím ještě neuložili</strong>.';
+
+    const modal = createCmsModal('Neuložené změny v editoru', `
+      <p style="font-size:0.95rem; line-height:1.55;">
+        Na stránce máte neuložené úpravy. Chcete je před opuštěním editoru uložit?
+      </p>
+      <div style="background:#f2ece1; border-left:4px solid #9e7b42; padding:0.75rem 1rem; border-radius:4px; font-size:0.88rem;">
+        ⏱️ ${elapsedStr}
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" id="unsaved-cancel">Zůstat v editoru</button>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="button" class="cms-btn cms-btn-danger" id="unsaved-discard">Odejít bez uložení</button>
+        <button type="button" class="cms-btn cms-btn-primary" id="unsaved-save-draft">💾 Uložit rozpracované a odejít</button>
+        <button type="button" class="cms-btn cms-btn-publish" id="unsaved-publish">🚀 Publikovat na web a odejít</button>
+      </div>
+    `, 'cms-modal-sm');
+
+    modal.querySelector('#unsaved-cancel')?.addEventListener('click', () => modal.remove());
+    modal.querySelector('#unsaved-discard')?.addEventListener('click', () => {
+      isDirty = false;
+      modal.remove();
+      onProceedCallback();
+    });
+    modal.querySelector('#unsaved-save-draft')?.addEventListener('click', async () => {
+      const ok = await executeSave('draft', '');
+      if (ok) {
+        modal.remove();
+        onProceedCallback();
+      }
+    });
+    modal.querySelector('#unsaved-publish')?.addEventListener('click', async () => {
+      const ok = await executeSave('publish', '');
+      if (ok) {
+        modal.remove();
+        onProceedCallback();
+      }
+    });
+  }
+
+  // ==========================================================================
+  // 4. Saving & Named Save History / Restorable Backups Overlay
+  // ==========================================================================
+  function promptSaveWithName(mode = 'draft') {
+    const isPublish = mode === 'publish';
+    const nowStr = new Date().toLocaleString('cs-CZ', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    const defaultName = isPublish
+      ? `Publikace na web (${nowStr})`
+      : `Rozpracované uložení (${nowStr})`;
+
+    const modal = createCmsModal(
+      isPublish ? '🚀 Publikovat změny na veřejný web' : '💾 Uložit rozpracovanou verzi',
+      `
+        <p style="font-size:0.9rem; color:#5a605d;">
+          ${isPublish
+            ? 'Změny se okamžitě propíší na veřejný web a rodokmen se automaticky zarovná. Současně se vytvoří pojmenovaná záloha v historii uložení.'
+            : 'Vaše úpravy se uloží na server a vytvoří se pojmenovaný bod obnovy v historii uložení (veřejný web zatím zůstane beze změny).'}
+        </p>
+        <div class="cms-field">
+          <label for="cms-save-name-input">Název tohoto uložení (pro łatné rozpoznání v historii)</label>
+          <input type="text" id="cms-save-name-input" class="cms-input" value="${escapeAttr(defaultName)}" />
+        </div>
+      `,
+      `
+        <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+        <button type="button" class="cms-btn ${isPublish ? 'cms-btn-publish' : 'cms-btn-primary'}" id="cms-confirm-save-btn">
+          ${isPublish ? '🚀 Potvrdit a publikovat' : '💾 Uložit verzi'}
+        </button>
+      `,
+      'cms-modal-sm'
+    );
+
+    const input = modal.querySelector('#cms-save-name-input');
+    input?.focus();
+    input?.select();
+
+    modal.querySelector('#cms-confirm-save-btn')?.addEventListener('click', async () => {
+      const saveName = input.value.trim() || defaultName;
+      const btn = modal.querySelector('#cms-confirm-save-btn');
+      btn.disabled = true;
+      btn.textContent = 'Ukládám…';
+      const ok = await executeSave(mode, saveName);
+      if (ok) modal.remove();
+      else btn.disabled = false;
+    });
+  }
+
+  async function executeSave(mode, saveName) {
+    if (mode === 'publish') {
+      // Auto-organize tree before publishing live
+      clearAllTreeOffsets();
+    }
+    syncPersonLinksFromTree();
+
+    const action = mode === 'publish' ? 'save' : 'save_draft';
     try {
-      const res = await fetch('api.php?action=change_password', {
+      const res = await fetch(`api.php?action=${action}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken
         },
-        body: JSON.stringify({ newPassword: p1 })
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          siteData: SITE_DATA,
+          saveName
+        })
       });
       const data = await res.json();
-      if (res.ok && data.ok) {
-        showToast('✓ Přístupové heslo bylo úspěšně změněno.');
-        e.target.reset();
+      if (data && data.ok) {
+        lastSavedTimestamp = Date.now();
+        if (Array.isArray(data.backups)) {
+          serverBackups = data.backups;
+        }
+        if (mode === 'publish') {
+          localStorage.removeItem('pokorny_cms_draft_data');
+          markDirty(false, false);
+          showCmsToast('✓ Změny byly úspěšně publikovány na web a zálohovány!');
+          if (typeof window.refreshPageView === 'function') window.refreshPageView();
+          if (window.treePanZoomApi) window.treePanZoomApi.centerTree(true);
+        } else {
+          markDirty(false, true);
+          showCmsToast('💾 Rozpracovaná verze byla uložena do historie!');
+        }
+        return true;
       } else {
-        alert(data.error || 'Chyba při změně hesla.');
+        alert(data?.error || 'Nepodařilo se uložit změny.');
+        return false;
       }
     } catch (err) {
-      alert('Nepodařilo se spojit se serverem.');
+      alert('Chyba spojení se serverem při ukládání.');
+      return false;
     }
-  });
-}
+  }
+
+  function openSaveHistoryModal() {
+    const modal = createCmsModal(
+      '🕒 Historie uložení a obnovitelné zálohy',
+      `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+          <p style="font-size:0.88rem; color:#5a605d; margin:0;">
+            Každé uložení vytvoří obnovitelnou zálohu. Libovolnou verzi můžete přejmenovat nebo jedním kliknutím obnovit.
+          </p>
+          <span style="font-size:0.8rem; font-weight:600; color:#9e7b42;">
+            ⏱️ ${formatTimeSinceLastSave()}
+          </span>
+        </div>
+        <div id="cms-backups-container" class="cms-backups-list"></div>
+      `,
+      `
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" id="cms-export-json-btn">📦 Stáhnout .json do PC</button>
+          <label class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0; cursor:pointer;">
+            📂 Nahrát .json z PC
+            <input type="file" id="cms-import-json-input" accept=".json" hidden />
+          </label>
+        </div>
+        <button type="button" class="cms-btn cms-btn-primary" data-close-modal>Zavřít historii</button>
+      `
+    );
+
+    const listEl = modal.querySelector('#cms-backups-container');
+
+    function renderBackupRows() {
+      if (!serverBackups || serverBackups.length === 0) {
+        listEl.innerHTML = `<div style="padding:1.5rem; text-align:center; color:#5a605d;">Zatím nejsou k dispozici žádná předchozí uložení.</div>`;
+        return;
+      }
+      listEl.innerHTML = serverBackups.map(b => {
+        const dt = new Date(b.createdAt).toLocaleString('cs-CZ');
+        const badge = b.type === 'published'
+          ? `<span style="background:#2c6e49; color:#fff; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem;">Publikováno</span>`
+          : `<span style="background:#9e7b42; color:#fff; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem;">Koncept</span>`;
+        return `
+          <div class="cms-backup-row type-${b.type}" data-bkp-id="${b.id}">
+            <div>
+              <div class="cms-backup-title">${escapeHtml(b.name)} ${badge}</div>
+              <div class="cms-backup-sub">Uloženo: ${dt}</div>
+            </div>
+            <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+              <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-rename-bkp="${b.id}">✏️ Přejmenovat</button>
+              <button type="button" class="cms-btn cms-btn-primary" data-restore-bkp="${b.id}">⏪ Obnovit tuto verzi</button>
+              <button type="button" class="cms-btn cms-btn-danger" data-delete-bkp="${b.id}" title="Smazat zálohu">🗑️</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('[data-rename-bkp]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-rename-bkp');
+          const curr = serverBackups.find(x => x.id === id);
+          const newName = prompt('Zadejte nový název pro toto uložení:', curr?.name || '');
+          if (!newName || !newName.trim()) return;
+          const res = await fetch('api.php?action=rename_backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: JSON.stringify({ id, name: newName.trim() })
+          });
+          const data = await res.json();
+          if (data?.ok) {
+            serverBackups = data.backups || serverBackups;
+            renderBackupRows();
+            showCmsToast('Název uložení byl upraven.');
+          }
+        });
+      });
+
+      listEl.querySelectorAll('[data-restore-bkp]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-restore-bkp');
+          const curr = serverBackups.find(x => x.id === id);
+          if (!confirm(`Opravdu chcete obnovit uloženou verzi „${curr?.name || id}“?`)) return;
+          const res = await fetch('api.php?action=restore_backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: JSON.stringify({ id })
+          });
+          const data = await res.json();
+          if (data?.ok && data.siteData) {
+            Object.assign(SITE_DATA, data.siteData);
+            markDirty(false, true);
+            if (typeof window.refreshPageView === 'function') window.refreshPageView();
+            modal.remove();
+            showCmsToast(`⏪ Obnovena verze: ${curr?.name || ''}`);
+          } else {
+            alert(data?.error || 'Obnovení selhalo.');
+          }
+        });
+      });
+
+      listEl.querySelectorAll('[data-delete-bkp]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-delete-bkp');
+          if (!confirm('Smazat tuto zálohu z historie?')) return;
+          const res = await fetch('api.php?action=delete_backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: JSON.stringify({ id })
+          });
+          const data = await res.json();
+          if (data?.ok) {
+            serverBackups = data.backups || [];
+            renderBackupRows();
+          }
+        });
+      });
+    }
+
+    renderBackupRows();
+
+    modal.querySelector('#cms-export-json-btn')?.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(SITE_DATA, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `pokorny-web-zaloha-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+    });
+
+    modal.querySelector('#cms-import-json-input')?.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          if (parsed && typeof parsed === 'object') {
+            Object.assign(SITE_DATA, parsed);
+            markDirty(true);
+            if (typeof window.refreshPageView === 'function') window.refreshPageView();
+            modal.remove();
+            showCmsToast('📂 Záloha ze souboru byla načtena.');
+          }
+        } catch (err) {
+          alert('Neplatný JSON soubor.');
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // ==========================================================================
+  // 5. In-Place Direct Text Editing & Interactive "Kliknout | Upravit" Popover
+  // ==========================================================================
+  function markInteractableTargets() {
+    const selectors = [
+      '.site-header .brand',
+      '.site-header .nav-links a',
+      '.hero-img-btn',
+      '#btn-pribor-more',
+      '#vaclav-home-portrait',
+      '.vaclav-cta-wrap a',
+      '.track-item',
+      '.timeline-item-compact',
+      '.timeline-item-interactive',
+      '.lineage-node-link',
+      '#brozik-box',
+      '.vaclav-framed-photo',
+      '.collage-tile',
+      '.tree-person-card'
+    ];
+    document.querySelectorAll(selectors.join(', ')).forEach(el => {
+      el.classList.add('cms-interactable-target');
+    });
+  }
+
+  function closeActivePopover() {
+    if (activePopoverCleanup) {
+      activePopoverCleanup();
+      activePopoverCleanup = null;
+    }
+    document.querySelectorAll('.cms-action-popover').forEach(p => p.remove());
+  }
+
+  function setupGlobalCmsClickInterceptor() {
+    document.addEventListener('click', (e) => {
+      if (!document.body.classList.contains('cms-visual-active')) return;
+
+      // Ignore clicks inside CMS UI panels, modals, popovers, or inline text toolbars
+      if (e.target.closest('.cms-top-bar, .cms-modal-backdrop, .cms-action-popover, .cms-inline-text-toolbar, .cms-timeline-dnd-bar, .cms-add-item-btn, .cms-tree-port, .tree-couple-ring')) {
+        return;
+      }
+      // Also ignore clicks inside the universal preview modal when opened via "Kliknout"
+      if (e.target.closest('#universal-modal')) {
+        return;
+      }
+
+      // Check if we are intentionally triggering the native click action from the "▶ Kliknout" popover button
+      const interactable = findInteractableElement(e.target);
+      if (interactable && bypassingClickElement === interactable) {
+        bypassingClickElement = null;
+        return;
+      }
+
+      // If user clicked an interactive element, show the "▶ Kliknout | ✏️ Upravit" popover!
+      if (interactable) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeActivePopover();
+        showClickOrEditPopover(interactable, e.clientX, e.clientY);
+        return;
+      }
+
+      // Otherwise, check if user clicked a direct editable text element ([data-cms] or [data-cms-linkify])
+      const cmsTextEl = e.target.closest('[data-cms], [data-cms-linkify]');
+      if (cmsTextEl && !cmsTextEl.closest('a, button')) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeActivePopover();
+        startInlineTextEditing(cmsTextEl);
+        return;
+      }
+
+      closeActivePopover();
+    }, true);
+  }
+
+  function findInteractableElement(target) {
+    return target.closest(
+      '.site-header .brand, .site-header .nav-links a, .hero-img-btn, #btn-pribor-more, #vaclav-home-portrait, .vaclav-cta-wrap a, .track-item, .timeline-item-compact, .timeline-item-interactive, .lineage-node-link, #brozik-box, .vaclav-framed-photo, .collage-tile, .tree-person-card'
+    );
+  }
+
+  function startInlineTextEditing(el) {
+    if (el.getAttribute('data-cms-editing') === 'true') return;
+
+    const cmsKey = el.getAttribute('data-cms-linkify') || el.getAttribute('data-cms');
+    if (!cmsKey) return;
+
+    const rawText = el.getAttribute('data-raw-text') ?? getNestedPageText(cmsKey) ?? el.textContent;
+    el.setAttribute('data-cms-editing', 'true');
+    el.contentEditable = 'true';
+    el.textContent = rawText;
+    el.focus();
+
+    const rect = el.getBoundingClientRect();
+    const toolbar = document.createElement('div');
+    toolbar.className = 'cms-inline-text-toolbar';
+    toolbar.style.top = `${Math.max(60, rect.top - 42)}px`;
+    toolbar.style.left = `${Math.max(16, Math.min(window.innerWidth - 380, rect.left))}px`;
+    toolbar.innerHTML = `
+      <span class="cms-inline-text-hint">💡 Odkaz: <code>[www.web.cz](Název)</code> • Jména rodu se prolinkují sama</span>
+      <button type="button" class="cms-btn cms-btn-primary" id="inline-save-btn" style="padding:0.22rem 0.55rem;">✓ Hotovo</button>
+      <button type="button" class="cms-btn cms-btn-ghost" id="inline-cancel-btn" style="padding:0.22rem 0.45rem;">✕</button>
+    `;
+    document.body.appendChild(toolbar);
+
+    let finished = false;
+    function finishEdit(saveChanges) {
+      if (finished) return;
+      finished = true;
+      el.removeAttribute('data-cms-editing');
+      el.contentEditable = 'false';
+      toolbar.remove();
+
+      if (saveChanges) {
+        const newVal = el.innerText.trim();
+        setNestedPageText(cmsKey, newVal);
+        markDirty(true);
+      }
+      if (typeof window.refreshPageView === 'function') {
+        window.refreshPageView();
+      }
+    }
+
+    toolbar.querySelector('#inline-save-btn')?.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      finishEdit(true);
+    });
+    toolbar.querySelector('#inline-cancel-btn')?.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      finishEdit(false);
+    });
+
+    el.addEventListener('blur', () => {
+      setTimeout(() => finishEdit(true), 120);
+    }, { once: true });
+
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        finishEdit(false);
+      } else if (ev.key === 'Enter' && !ev.shiftKey && el.tagName.toLowerCase().startsWith('h')) {
+        ev.preventDefault();
+        finishEdit(true);
+      }
+    });
+  }
+
+  function showClickOrEditPopover(el, clickX, clickY) {
+    const desc = describeInteractable(el);
+    const pop = document.createElement('div');
+    pop.className = 'cms-action-popover';
+    pop.innerHTML = `
+      <span class="cms-popover-label" title="${escapeAttr(desc.label)}">${escapeHtml(desc.label)}</span>
+      <button type="button" class="cms-popover-btn" id="pop-do-click">▶ Kliknout</button>
+      <button type="button" class="cms-popover-btn edit-btn" id="pop-do-edit">✏️ Upravit</button>
+    `;
+    document.body.appendChild(pop);
+
+    const rect = el.getBoundingClientRect();
+    const popRect = pop.getBoundingClientRect();
+    let top = rect.top - popRect.height - 8;
+    if (top < 60) top = Math.min(window.innerHeight - 56, clickY + 14);
+    let left = rect.left + rect.width / 2 - popRect.width / 2;
+    left = Math.max(12, Math.min(window.innerWidth - popRect.width - 12, left));
+
+    pop.style.top = `${top}px`;
+    pop.style.left = `${left}px`;
+
+    pop.querySelector('#pop-do-click')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeActivePopover();
+      desc.onClickAction();
+    });
+
+    pop.querySelector('#pop-do-edit')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeActivePopover();
+      desc.onEditAction();
+    });
+
+    activePopoverCleanup = () => pop.remove();
+  }
+
+  function navigateInCmsMode(rawHref) {
+    if (!rawHref) return;
+    if (rawHref.startsWith('#')) {
+      const target = document.querySelector(rawHref);
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    const [pathPart, hashPart] = rawHref.split('#');
+    const url = new URL(pathPart, window.location.href);
+    url.searchParams.set('cms', '1');
+    if (hashPart) url.hash = hashPart;
+    window.location.href = url.toString();
+  }
+
+  function describeInteractable(el) {
+    // 0A. Top Bar Brand Block (.site-header .brand)
+    if (el.matches('.site-header .brand')) {
+      return {
+        label: 'Horní lišta: Název a podtitulek webu',
+        onClickAction: () => navigateInCmsMode(el.getAttribute('href') || 'index.html'),
+        onEditAction: () => openTopBarEditor('brand')
+      };
+    }
+
+    // 0B. Top Bar Navigation Link (.site-header .nav-links a)
+    if (el.matches('.site-header .nav-links a')) {
+      const cmsKey = el.getAttribute('data-cms');
+      const linkLabel = el.textContent.trim() || 'Odkaz v menu';
+      return {
+        label: `Horní lišta: ${linkLabel}`,
+        onClickAction: () => navigateInCmsMode(el.getAttribute('href')),
+        onEditAction: () => openTopBarEditor(cmsKey)
+      };
+    }
+
+    // 1. Hero Image Card on index.html
+    if (el.classList.contains('hero-img-btn')) {
+      const bgKey = el.getAttribute('data-cms-bg'); // e.g. home.cardTreeImg
+      const titleEl = el.querySelector('[data-cms]');
+      const subEl = el.querySelector('small[data-cms]');
+      const titleKey = titleEl?.getAttribute('data-cms');
+      const subKey = subEl?.getAttribute('data-cms');
+      const label = titleEl?.textContent || 'Rozcestník';
+      return {
+        label,
+        onClickAction: () => navigateInCmsMode(el.getAttribute('href')),
+        onEditAction: () => openHeroCardEditor({ bgKey, titleKey, subKey, label })
+      };
+    }
+
+    // 2. "Více o Příboře →" Button on index.html
+    if (el.id === 'btn-pribor-more') {
+      return {
+        label: 'Tlačítko a okno: O Příboře',
+        onClickAction: () => window.openPriborMoreOverlay && window.openPriborMoreOverlay(),
+        onEditAction: () => openPriborOverlayEditor()
+      };
+    }
+
+    // 3. Main Page Václav Pokorný Portrait
+    if (el.id === 'vaclav-home-portrait') {
+      return {
+        label: 'Portrét Václava Pokorného',
+        onClickAction: () => navigateInCmsMode('vaclav-pokorny.html'),
+        onEditAction: () => openVaclavHomePortraitEditor()
+      };
+    }
+
+    // 4. Main Page Václav Pokorný "Více →" CTA Button
+    if (el.matches('.vaclav-cta-wrap a')) {
+      return {
+        label: el.textContent.trim() || 'Tlačítko Více',
+        onClickAction: () => navigateInCmsMode(el.getAttribute('href')),
+        onEditAction: () => openSimpleButtonTextEditor('home.vaclavCtaLabel', 'Text tlačítka (Václav Pokorný)')
+      };
+    }
+
+    // 5. Audio Track Item
+    if (el.classList.contains('track-item')) {
+      const idx = parseInt(el.getAttribute('data-idx') || '0', 10);
+      const track = SITE_DATA.audioTracks?.[idx];
+      return {
+        label: track ? `Skladba: ${track.title}` : 'Audio stopa',
+        onClickAction: () => window.selectShowcaseTrack && window.selectShowcaseTrack(idx, true),
+        onEditAction: () => track && openAudioTrackEditor(track, idx)
+      };
+    }
+
+    // 6. Timeline Item (Compact on index.html or Full on subpages)
+    if (el.classList.contains('timeline-item-compact') || el.classList.contains('timeline-item-interactive')) {
+      const tType = el.getAttribute('data-timeline-type') || 'pharmacy';
+      const id = el.getAttribute('data-id');
+      const list = tType === 'vaclav' ? SITE_DATA.vaclavTimeline : SITE_DATA.pharmacyTimeline;
+      const entry = list?.find(x => x.id === id);
+      return {
+        label: entry ? `${entry.year || entry.period}: ${entry.title}` : 'Milník časové osy',
+        onClickAction: () => {
+          if (el.classList.contains('timeline-item-compact')) {
+            navigateInCmsMode(`historie-lekarny.html#${id}`);
+          } else if (entry && window.openTimelineOverlay) {
+            window.openTimelineOverlay(entry, tType === 'vaclav' ? 'period' : 'year');
+          }
+        },
+        onEditAction: () => entry && openTimelineItemEditor(entry, tType)
+      };
+    }
+
+    // 7. Framed Photo Card (Příbor section on index.html or Václav Pokorný subpage)
+    if (el.classList.contains('vaclav-framed-photo')) {
+      const group = el.getAttribute('data-photo-group') || 'vaclav';
+      const id = el.getAttribute('data-photo-id');
+      const list = group === 'pribor' ? SITE_DATA.priborPhotos : SITE_DATA.vaclavInteractivePhotos;
+      const item = list?.find(p => p.id === id);
+      return {
+        label: item ? `Rámeček: ${item.title}` : 'Fotografie v rámečku',
+        onClickAction: () => item && window.openVaclavPhotoOverlay && window.openVaclavPhotoOverlay(item),
+        onEditAction: () => item && openFramedPhotoEditor(item, group)
+      };
+    }
+
+    // 8. Archive Collage Tile
+    if (el.classList.contains('collage-tile')) {
+      const id = el.getAttribute('data-id');
+      const item = SITE_DATA.archiveItems?.find(x => x.id === id);
+      return {
+        label: item ? `Archiv: ${item.title}` : 'Položka archivu',
+        onClickAction: () => item && window.openMediaGalleryOverlay && window.openMediaGalleryOverlay(item),
+        onEditAction: () => item && openArchiveItemEditor(item)
+      };
+    }
+
+    // 9. Lineage Chain Card (6 generations of pharmacists on historie-lekarny.html)
+    if (el.classList.contains('lineage-node-link')) {
+      const idx = parseInt(el.getAttribute('data-lineage-idx') || '0', 10);
+      const node = SITE_DATA.familyTree?.pharmacistsLine?.[idx];
+      return {
+        label: node ? `${node.gen}. gen.: ${node.name}` : 'Lékárník v posloupnosti',
+        onClickAction: () => navigateInCmsMode(el.getAttribute('href')),
+        onEditAction: () => node && openLineageNodeEditor(node)
+      };
+    }
+
+    // 10. Brožík Connection Callout Box
+    if (el.id === 'brozik-box') {
+      return {
+        label: 'Box: Větev Brožíkových z Plzně',
+        onClickAction: () => {
+          const pid = SITE_DATA.familyTree?.brozikConnection?.personId || 'bozena-brozikova-5';
+          navigateInCmsMode(`rodokmen.html?person=${pid}`);
+        },
+        onEditAction: () => openBrozikBoxEditor()
+      };
+    }
+
+    // 11. Family Tree Person Card (rodokmen.html)
+    if (el.classList.contains('tree-person-card')) {
+      const personId = el.getAttribute('data-person-id');
+      const member = window.PERSON_MAP?.get(personId);
+      return {
+        label: member ? member.name : 'Osobnost v rodokmenu',
+        onClickAction: () => member && window.openPersonOverlayModal && window.openPersonOverlayModal(member),
+        onEditAction: () => member && openTreePersonEditor(member)
+      };
+    }
+
+    return {
+      label: 'Prvek stránky',
+      onClickAction: () => {
+        bypassingClickElement = el;
+        el.click();
+      },
+      onEditAction: () => {}
+    };
+  }
+
+  // ==========================================================================
+  // 6. Fullscreen / Overlay Editors for Each Interactive Component
+  // ==========================================================================
+  function openTopBarEditor(focusFieldKey = null) {
+    const g = SITE_DATA.pageText?.global || {};
+    const modal = createCmsModal('✏️ Upravit horní lištu webu (značku a menu)', `
+      <p style="font-size:0.88rem; color:#5a605d; margin:0 0 0.5rem 0;">
+        Úpravy horní lišty se automaticky propíší na všechny podstránky webu.
+      </p>
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Hlavní titulek vlevo (značka webu)</label>
+          <input type="text" id="edit-tb-brand-title" data-tb-key="global.brandTitle" class="cms-input" value="${escapeAttr(g.brandTitle || 'Pokorní z Příbora')}" />
+        </div>
+        <div class="cms-field">
+          <label>Podtitulek pod názvem vlevo</label>
+          <input type="text" id="edit-tb-brand-sub" data-tb-key="global.brandSubtitle" class="cms-input" value="${escapeAttr(g.brandSubtitle || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>1. položka menu (Úvod)</label>
+          <input type="text" id="edit-tb-nav-home" data-tb-key="global.navHome" class="cms-input" value="${escapeAttr(g.navHome || 'Úvod')}" />
+        </div>
+        <div class="cms-field">
+          <label>2. položka menu (Interaktivní rodokmen)</label>
+          <input type="text" id="edit-tb-nav-tree" data-tb-key="global.navTree" class="cms-input" value="${escapeAttr(g.navTree || 'Interaktivní rodokmen')}" />
+        </div>
+        <div class="cms-field">
+          <label>3. položka menu (Historie lékárny)</label>
+          <input type="text" id="edit-tb-nav-pharm" data-tb-key="global.navPharmacy" class="cms-input" value="${escapeAttr(g.navPharmacy || 'Historie lékárny')}" />
+        </div>
+        <div class="cms-field">
+          <label>4. položka menu (PhMr. Václav Pokorný)</label>
+          <input type="text" id="edit-tb-nav-vaclav" data-tb-key="global.navVaclav" class="cms-input" value="${escapeAttr(g.navVaclav || 'PhMr. Václav Pokorný')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>5. položka menu (Archiv)</label>
+          <input type="text" id="edit-tb-nav-archive" data-tb-key="global.navArchive" class="cms-input" value="${escapeAttr(g.navArchive || 'Archiv')}" />
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-topbar-btn">✓ Použít změny</button>
+    `);
+
+    if (focusFieldKey) {
+      const targetInput = focusFieldKey === 'brand'
+        ? modal.querySelector('#edit-tb-brand-title')
+        : modal.querySelector(`[data-tb-key="${focusFieldKey}"]`);
+      if (targetInput) {
+        setTimeout(() => {
+          targetInput.focus();
+          targetInput.select();
+        }, 50);
+      }
+    }
+
+    modal.querySelector('#save-topbar-btn')?.addEventListener('click', () => {
+      setNestedPageText('global.brandTitle', modal.querySelector('#edit-tb-brand-title').value.trim());
+      setNestedPageText('global.brandSubtitle', modal.querySelector('#edit-tb-brand-sub').value.trim());
+      setNestedPageText('global.navHome', modal.querySelector('#edit-tb-nav-home').value.trim());
+      setNestedPageText('global.navTree', modal.querySelector('#edit-tb-nav-tree').value.trim());
+      setNestedPageText('global.navPharmacy', modal.querySelector('#edit-tb-nav-pharm').value.trim());
+      setNestedPageText('global.navVaclav', modal.querySelector('#edit-tb-nav-vaclav').value.trim());
+      setNestedPageText('global.navArchive', modal.querySelector('#edit-tb-nav-archive').value.trim());
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Horní lišta webu byla aktualizována.');
+    });
+  }
+
+  function openHeroCardEditor({ bgKey, titleKey, subKey, label }) {
+    const currTitle = getNestedPageText(titleKey) || '';
+    const currSub = getNestedPageText(subKey) || '';
+    const currBg = getNestedPageText(bgKey) || '';
+
+    const modal = createCmsModal(`✏️ Upravit kartu rozcestníku: ${label}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Hlavní nadpis karty</label>
+          <input type="text" id="edit-hero-title" class="cms-input" value="${escapeAttr(currTitle)}" />
+        </div>
+        <div class="cms-field">
+          <label>Podtitulek karty</label>
+          <input type="text" id="edit-hero-sub" class="cms-input" value="${escapeAttr(currSub)}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Obrázek na pozadí karty</label>
+          <div class="cms-input-with-btn">
+            <input type="text" id="edit-hero-bg" class="cms-input" value="${escapeAttr(currBg)}" placeholder="Cesta k obrázku (např. uploads/...)" />
+            <button type="button" class="cms-btn cms-btn-primary" id="pick-hero-bg-btn">📁 Vybrat / Nahrát obrázek</button>
+          </div>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-hero-card-btn">✓ Použít změny</button>
+    `);
+
+    modal.querySelector('#pick-hero-bg-btn')?.addEventListener('click', () => {
+      openFileManagerModal('image', (pickedPath) => {
+        modal.querySelector('#edit-hero-bg').value = pickedPath;
+      });
+    });
+
+    modal.querySelector('#save-hero-card-btn')?.addEventListener('click', () => {
+      if (titleKey) setNestedPageText(titleKey, modal.querySelector('#edit-hero-title').value.trim());
+      if (subKey) setNestedPageText(subKey, modal.querySelector('#edit-hero-sub').value.trim());
+      if (bgKey) setNestedPageText(bgKey, modal.querySelector('#edit-hero-bg').value.trim());
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Karta rozcestníku byla upravena.');
+    });
+  }
+
+  function openPriborOverlayEditor() {
+    const home = SITE_DATA.pageText?.home || {};
+    const modal = createCmsModal('✏️ Upravit sekci a vyskakovací okno: Město Příbor', `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Text tlačítka (např. Více o Příboře →)</label>
+          <input type="text" id="edit-pribor-cta" class="cms-input" value="${escapeAttr(home.priborCtaLabel || 'Více o Příboře →')}" />
+        </div>
+        <div class="cms-field">
+          <label>Podtitulek ve vyskakovacím okně</label>
+          <input type="text" id="edit-pribor-sub" class="cms-input" value="${escapeAttr(home.priborModalSubtitle || '')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Podrobný článek o Příboře ve vyskakovacím okně (odstavce oddělte prázdným řádkem)</label>
+          <textarea id="edit-pribor-long" class="cms-textarea" style="min-height:190px;">${escapeHtml(home.priborLongDescription || '')}</textarea>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-pribor-modal-btn">✓ Použít změny</button>
+    `);
+
+    modal.querySelector('#save-pribor-modal-btn')?.addEventListener('click', () => {
+      setNestedPageText('home.priborCtaLabel', modal.querySelector('#edit-pribor-cta').value.trim());
+      setNestedPageText('home.priborModalSubtitle', modal.querySelector('#edit-pribor-sub').value.trim());
+      setNestedPageText('home.priborLongDescription', modal.querySelector('#edit-pribor-long').value.trim());
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Obsah okna O Příboře byl aktualizován.');
+    });
+  }
+
+  function openVaclavHomePortraitEditor() {
+    const currImg = getNestedPageText('home.vaclavPortraitImg') || '';
+    const currCap = getNestedPageText('home.vaclavPortraitCaption') || '';
+    const modal = createCmsModal('✏️ Upravit portrét PhMr. Václava Pokorného (Úvod)', `
+      <div class="cms-field-grid">
+        <div class="cms-field full-width">
+          <label>Fotografie portrétu</label>
+          <div class="cms-input-with-btn">
+            <input type="text" id="edit-vp-home-img" class="cms-input" value="${escapeAttr(currImg)}" placeholder="Cesta k fotografii (např. uploads/...)" />
+            <button type="button" class="cms-btn cms-btn-primary" id="pick-vp-home-img">📁 Vybrat / Nahrát foto</button>
+          </div>
+        </div>
+        <div class="cms-field full-width">
+          <label>Popisek pod portrétem</label>
+          <input type="text" id="edit-vp-home-cap" class="cms-input" value="${escapeAttr(currCap)}" />
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-vp-home-btn">✓ Použít změny</button>
+    `);
+
+    modal.querySelector('#pick-vp-home-img')?.addEventListener('click', () => {
+      openFileManagerModal('image', (picked) => {
+        modal.querySelector('#edit-vp-home-img').value = picked;
+      });
+    });
+
+    modal.querySelector('#save-vp-home-btn')?.addEventListener('click', () => {
+      setNestedPageText('home.vaclavPortraitImg', modal.querySelector('#edit-vp-home-img').value.trim());
+      setNestedPageText('home.vaclavPortraitCaption', modal.querySelector('#edit-vp-home-cap').value.trim());
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+  }
+
+  function openSimpleButtonTextEditor(cmsKey, titleLabel) {
+    const curr = getNestedPageText(cmsKey) || '';
+    const modal = createCmsModal(`✏️ ${titleLabel}`, `
+      <div class="cms-field">
+        <label>Text tlačítka</label>
+        <input type="text" id="edit-simple-btn-val" class="cms-input" value="${escapeAttr(curr)}" />
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-simple-btn">✓ Uložit</button>
+    `, 'cms-modal-sm');
+
+    modal.querySelector('#save-simple-btn')?.addEventListener('click', () => {
+      setNestedPageText(cmsKey, modal.querySelector('#edit-simple-btn-val').value.trim());
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+  }
+
+  function openAudioTrackEditor(track, idx) {
+    const modal = createCmsModal(`✏️ Upravit skladbu v přehrávači: ${track.title}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Název skladby / pořadu</label>
+          <input type="text" id="edit-track-title" class="cms-input" value="${escapeAttr(track.title || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Interpret / Podtitulek</label>
+          <input type="text" id="edit-track-sub" class="cms-input" value="${escapeAttr(track.subtitle || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Rok / Období</label>
+          <input type="text" id="edit-track-year" class="cms-input" value="${escapeAttr(track.year || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Délka (např. 28:10)</label>
+          <input type="text" id="edit-track-dur" class="cms-input" value="${escapeAttr(track.duration || '')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Zvukový soubor (MP3, WAV, OGG, WMA)</label>
+          <div class="cms-input-with-btn">
+            <input type="text" id="edit-track-src" class="cms-input" value="${escapeAttr(track.src || '')}" />
+            <button type="button" class="cms-btn cms-btn-primary" id="pick-track-src">📁 Vybrat / Nahrát audio</button>
+          </div>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-danger" id="delete-track-btn">🗑️ Smazat skladbu</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+        <button type="button" class="cms-btn cms-btn-primary" id="save-track-btn">✓ Použít změny</button>
+      </div>
+    `);
+
+    modal.querySelector('#pick-track-src')?.addEventListener('click', () => {
+      openFileManagerModal('audio', (picked) => {
+        modal.querySelector('#edit-track-src').value = picked;
+      });
+    });
+
+    modal.querySelector('#delete-track-btn')?.addEventListener('click', () => {
+      if (!confirm(`Opravdu smazat skladbu „${track.title}“?`)) return;
+      SITE_DATA.audioTracks.splice(idx, 1);
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+
+    modal.querySelector('#save-track-btn')?.addEventListener('click', () => {
+      track.title = modal.querySelector('#edit-track-title').value.trim();
+      track.subtitle = modal.querySelector('#edit-track-sub').value.trim();
+      track.year = modal.querySelector('#edit-track-year').value.trim();
+      track.duration = modal.querySelector('#edit-track-dur').value.trim();
+      track.src = modal.querySelector('#edit-track-src').value.trim();
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Skladba byla aktualizována.');
+    });
+  }
+
+  function openTimelineItemEditor(entry, timelineType = 'pharmacy') {
+    const isVaclav = timelineType === 'vaclav';
+    const timeKey = isVaclav ? 'period' : 'year';
+    const workingPhotos = JSON.parse(JSON.stringify(entry.photos && entry.photos.length ? entry.photos : [{ url: null, caption: entry.title }]));
+
+    const modal = createCmsModal(`✏️ Upravit milník časové osy: ${entry.title}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>${isVaclav ? 'Období / Roky' : 'Rok / Století'}</label>
+          <input type="text" id="edit-tl-time" class="cms-input" value="${escapeAttr(entry[timeKey] || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Nadpis období</label>
+          <input type="text" id="edit-tl-title" class="cms-input" value="${escapeAttr(entry.title || '')}" />
+        </div>
+        ${!isVaclav ? `
+          <div class="cms-field full-width">
+            <label>Osobnosti / Generace (jména se automaticky prolinkují do rodokmenu)</label>
+            <input type="text" id="edit-tl-person" class="cms-input" value="${escapeAttr(entry.person || '')}" />
+          </div>
+        ` : ''}
+        <div class="cms-field full-width">
+          <label>Krátký popis na stránce (podporuje odkazy [www.web.cz](Název) i jména rodu)</label>
+          <textarea id="edit-tl-short" class="cms-textarea" style="min-height:80px;">${escapeHtml(entry.description || '')}</textarea>
+        </div>
+        <div class="cms-field full-width">
+          <label>Podrobné vyprávění po rozkliknutí tlačítka „Více ↗“ (odstavce oddělte prázdným řádkem)</label>
+          <textarea id="edit-tl-long" class="cms-textarea" style="min-height:150px;">${escapeHtml(entry.longDescription || entry.description || '')}</textarea>
+        </div>
+        <div class="cms-field full-width">
+          <label>Fotografie v karuselu tohoto období</label>
+          <div id="edit-tl-photos-wrap" class="cms-photo-list-editor"></div>
+          <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0; align-self:flex-start; margin-top:0.35rem;" id="add-tl-photo-btn">+ Přidat další fotografii</button>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-danger" id="delete-tl-btn">🗑️ Smazat tento milník</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+        <button type="button" class="cms-btn cms-btn-primary" id="save-tl-btn">✓ Použít změny</button>
+      </div>
+    `);
+
+    const photosWrap = modal.querySelector('#edit-tl-photos-wrap');
+    renderPhotoRowsEditor(photosWrap, workingPhotos, true);
+
+    modal.querySelector('#add-tl-photo-btn')?.addEventListener('click', () => {
+      workingPhotos.push({ url: null, caption: '', detail: '' });
+      renderPhotoRowsEditor(photosWrap, workingPhotos, true);
+    });
+
+    modal.querySelector('#delete-tl-btn')?.addEventListener('click', () => {
+      if (!confirm(`Opravdu smazat milník „${entry.title}“?`)) return;
+      const list = isVaclav ? SITE_DATA.vaclavTimeline : SITE_DATA.pharmacyTimeline;
+      const idx = list.findIndex(x => x.id === entry.id);
+      if (idx !== -1) list.splice(idx, 1);
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+
+    modal.querySelector('#save-tl-btn')?.addEventListener('click', () => {
+      entry[timeKey] = modal.querySelector('#edit-tl-time').value.trim();
+      entry.title = modal.querySelector('#edit-tl-title').value.trim();
+      if (!isVaclav && modal.querySelector('#edit-tl-person')) {
+        entry.person = modal.querySelector('#edit-tl-person').value.trim();
+      }
+      entry.description = modal.querySelector('#edit-tl-short').value.trim();
+      entry.longDescription = modal.querySelector('#edit-tl-long').value.trim();
+      entry.photos = workingPhotos;
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Milník časové osy byl aktualizován.');
+    });
+  }
+
+  function openFramedPhotoEditor(item, groupType = 'vaclav') {
+    const isPribor = groupType === 'pribor';
+    const workingPhotos = JSON.parse(JSON.stringify(item.photos && item.photos.length ? item.photos : [{ url: null, caption: item.title }]));
+
+    const modal = createCmsModal(`✏️ Upravit fotografický rámeček: ${item.title}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Titulek rámečku</label>
+          <input type="text" id="edit-fp-title" class="cms-input" value="${escapeAttr(item.title || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Období / Rok</label>
+          <input type="text" id="edit-fp-date" class="cms-input" value="${escapeAttr(item.date || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Autor / Zdroj archivu</label>
+          <input type="text" id="edit-fp-author" class="cms-input" value="${escapeAttr(item.author || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Režim po rozkliknutí</label>
+          <select id="edit-fp-mode" class="cms-select">
+            <option value="split" ${item.mode === 'split' ? 'selected' : ''}>Fotokarusel vlevo + textový popis vpravo</option>
+            <option value="carousel" ${item.mode === 'carousel' ? 'selected' : ''}>Pouze velký fotokarusel</option>
+          </select>
+        </div>
+        ${!isPribor ? `
+          <div class="cms-field full-width">
+            <label>Umístění na podstránce Václava Pokorného</label>
+            <select id="edit-fp-placement" class="cms-select">
+              <option value="top-right" ${item.placement === 'top-right' ? 'selected' : ''}>Vpravo nahoře vedle úvodního životopisu</option>
+              <option value="timeline-left" ${item.placement === 'timeline-left' ? 'selected' : ''}>Vlevo podél časové osy života</option>
+            </select>
+          </div>
+        ` : ''}
+        <div class="cms-field full-width">
+          <label>Krátký popisek pod rámečkem</label>
+          <input type="text" id="edit-fp-caption" class="cms-input" value="${escapeAttr(item.caption || '')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Podrobný popis (zobrazí se v pravém panelu po rozkliknutí)</label>
+          <textarea id="edit-fp-desc" class="cms-textarea">${escapeHtml(item.description || '')}</textarea>
+        </div>
+        <div class="cms-field full-width">
+          <label>Snímky uvnitř tohoto rámečku (první snímek slouží jako náhled)</label>
+          <div id="edit-fp-photos-wrap" class="cms-photo-list-editor"></div>
+          <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0; align-self:flex-start; margin-top:0.35rem;" id="add-fp-photo-btn">+ Přidat snímek</button>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-danger" id="delete-fp-btn">🗑️ Smazat rámeček</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+        <button type="button" class="cms-btn cms-btn-primary" id="save-fp-btn">✓ Použít změny</button>
+      </div>
+    `);
+
+    const photosWrap = modal.querySelector('#edit-fp-photos-wrap');
+    renderPhotoRowsEditor(photosWrap, workingPhotos, false);
+
+    modal.querySelector('#add-fp-photo-btn')?.addEventListener('click', () => {
+      workingPhotos.push({ url: null, caption: '' });
+      renderPhotoRowsEditor(photosWrap, workingPhotos, false);
+    });
+
+    modal.querySelector('#delete-fp-btn')?.addEventListener('click', () => {
+      if (!confirm(`Smazat rámeček „${item.title}“?`)) return;
+      const list = isPribor ? SITE_DATA.priborPhotos : SITE_DATA.vaclavInteractivePhotos;
+      const idx = list.findIndex(x => x.id === item.id);
+      if (idx !== -1) list.splice(idx, 1);
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+
+    modal.querySelector('#save-fp-btn')?.addEventListener('click', () => {
+      item.title = modal.querySelector('#edit-fp-title').value.trim();
+      item.date = modal.querySelector('#edit-fp-date').value.trim();
+      item.author = modal.querySelector('#edit-fp-author').value.trim();
+      item.mode = modal.querySelector('#edit-fp-mode').value;
+      if (!isPribor && modal.querySelector('#edit-fp-placement')) {
+        item.placement = modal.querySelector('#edit-fp-placement').value;
+      }
+      item.caption = modal.querySelector('#edit-fp-caption').value.trim();
+      item.description = modal.querySelector('#edit-fp-desc').value.trim();
+      item.photos = workingPhotos;
+      item.thumbnailUrl = workingPhotos[0]?.url || item.thumbnailUrl || null;
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Fotografický rámeček byl aktualizován.');
+    });
+  }
+
+  function openArchiveItemEditor(item) {
+    const workingPhotos = JSON.parse(JSON.stringify(item.photos && item.photos.length ? item.photos : [{ url: null, caption: item.title }]));
+    const pagesSet = new Set(item.pages || ['main']);
+
+    const modal = createCmsModal(`✏️ Upravit položku archivu: ${item.title}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Název archiválie</label>
+          <input type="text" id="edit-ar-title" class="cms-input" value="${escapeAttr(item.title || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Kategorie filtru</label>
+          <select id="edit-ar-cat" class="cms-select">
+            <option value="kroniky" ${item.category === 'kroniky' ? 'selected' : ''}>Kroniky a knihy</option>
+            <option value="dokumenty" ${item.category === 'dokumenty' ? 'selected' : ''}>Diplomy a dokumenty</option>
+            <option value="noty" ${item.category === 'noty' ? 'selected' : ''}>Notové záznamy</option>
+            <option value="hudba" ${item.category === 'hudba' ? 'selected' : ''}>Hudba a rozhlas</option>
+            <option value="fotografie" ${item.category === 'fotografie' ? 'selected' : ''}>Fotografie</option>
+          </select>
+        </div>
+        <div class="cms-field">
+          <label>Typ média</label>
+          <select id="edit-ar-type" class="cms-select">
+            <option value="photo" ${item.mediaType === 'photo' ? 'selected' : ''}>🖼️ Fotogalerie / Skeny</option>
+            <option value="pdf" ${item.mediaType === 'pdf' ? 'selected' : ''}>📄 PDF Dokument / Partitura</option>
+            <option value="audio" ${item.mediaType === 'audio' ? 'selected' : ''}>🎵 Zvuková nahrávka</option>
+          </select>
+        </div>
+        <div class="cms-field">
+          <label>Velikost dlaždice v koláži</label>
+          <select id="edit-ar-size" class="cms-select">
+            <option value="normal" ${item.tileSize === 'normal' ? 'selected' : ''}>Standardní</option>
+            <option value="wide" ${item.tileSize === 'wide' ? 'selected' : ''}>Široká (přes 2 sloupce)</option>
+            <option value="tall" ${item.tileSize === 'tall' ? 'selected' : ''}>Vysoká</option>
+            <option value="large" ${item.tileSize === 'large' ? 'selected' : ''}>Velká (2×2)</option>
+          </select>
+        </div>
+        <div class="cms-field">
+          <label>Datace / Rok</label>
+          <input type="text" id="edit-ar-date" class="cms-input" value="${escapeAttr(item.date || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Autor / Původ</label>
+          <input type="text" id="edit-ar-author" class="cms-input" value="${escapeAttr(item.author || '')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Zobrazit v archivu na stránkách:</label>
+          <div style="display:flex; gap:1.25rem; flex-wrap:wrap; margin-top:0.25rem;">
+            <label style="text-transform:none; font-weight:600;"><input type="checkbox" class="ar-page-cb" value="main" ${pagesSet.has('main') ? 'checked' : ''} /> Úvodní stránka</label>
+            <label style="text-transform:none; font-weight:600;"><input type="checkbox" class="ar-page-cb" value="lekarna" ${pagesSet.has('lekarna') ? 'checked' : ''} /> Historie lékárny</label>
+            <label style="text-transform:none; font-weight:600;"><input type="checkbox" class="ar-page-cb" value="vaclav" ${pagesSet.has('vaclav') ? 'checked' : ''} /> PhMr. Václav Pokorný</label>
+          </div>
+        </div>
+        <div class="cms-field full-width">
+          <label>Náhledový obrázek dlaždice (volitelné)</label>
+          <div class="cms-input-with-btn">
+            <input type="text" id="edit-ar-thumb" class="cms-input" value="${escapeAttr(item.thumbnailUrl || '')}" placeholder="Cesta k obrázku..." />
+            <button type="button" class="cms-btn cms-btn-primary" id="pick-ar-thumb">📁 Vybrat / Nahrát obrázek</button>
+          </div>
+        </div>
+        <div class="cms-field full-width">
+          <label>Popis položky</label>
+          <textarea id="edit-ar-desc" class="cms-textarea" style="min-height:85px;">${escapeHtml(item.description || '')}</textarea>
+        </div>
+        <div class="cms-field full-width">
+          <label>Přepis rukopisu / Poznámka</label>
+          <textarea id="edit-ar-trans" class="cms-textarea" style="min-height:70px;">${escapeHtml(item.transcription || '')}</textarea>
+        </div>
+        <div class="cms-field full-width" id="ar-pdf-fields">
+          <label>PDF Soubor (pokud jde o PDF dokument)</label>
+          <div class="cms-input-with-btn">
+            <input type="text" id="edit-ar-pdf" class="cms-input" value="${escapeAttr(item.pdfUrl || '')}" placeholder="Cesta k PDF souboru..." />
+            <button type="button" class="cms-btn cms-btn-primary" id="pick-ar-pdf">📁 Vybrat / Nahrát PDF</button>
+          </div>
+        </div>
+        <div class="cms-field full-width" id="ar-audio-fields">
+          <label>Audio Soubor (pokud jde o zvukovou nahrávku)</label>
+          <div class="cms-input-with-btn">
+            <input type="text" id="edit-ar-audio" class="cms-input" value="${escapeAttr(item.audioSrc || '')}" placeholder="Cesta k audio souboru..." />
+            <button type="button" class="cms-btn cms-btn-primary" id="pick-ar-audio">📁 Vybrat / Nahrát audio</button>
+          </div>
+        </div>
+        <div class="cms-field full-width" id="ar-photos-fields">
+          <label>Fotografie v galerii této položky</label>
+          <div id="edit-ar-photos-wrap" class="cms-photo-list-editor"></div>
+          <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0; align-self:flex-start; margin-top:0.35rem;" id="add-ar-photo-btn">+ Přidat fotografii</button>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-danger" id="delete-ar-btn">🗑️ Smazat položku</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+        <button type="button" class="cms-btn cms-btn-primary" id="save-ar-btn">✓ Použít změny</button>
+      </div>
+    `);
+
+    const photosWrap = modal.querySelector('#edit-ar-photos-wrap');
+    renderPhotoRowsEditor(photosWrap, workingPhotos, false);
+
+    modal.querySelector('#add-ar-photo-btn')?.addEventListener('click', () => {
+      workingPhotos.push({ url: null, caption: '' });
+      renderPhotoRowsEditor(photosWrap, workingPhotos, false);
+    });
+
+    modal.querySelector('#pick-ar-thumb')?.addEventListener('click', () => {
+      openFileManagerModal('image', (picked) => { modal.querySelector('#edit-ar-thumb').value = picked; });
+    });
+    modal.querySelector('#pick-ar-pdf')?.addEventListener('click', () => {
+      openFileManagerModal('pdf', (picked) => { modal.querySelector('#edit-ar-pdf').value = picked; });
+    });
+    modal.querySelector('#pick-ar-audio')?.addEventListener('click', () => {
+      openFileManagerModal('audio', (picked) => { modal.querySelector('#edit-ar-audio').value = picked; });
+    });
+
+    modal.querySelector('#delete-ar-btn')?.addEventListener('click', () => {
+      if (!confirm(`Smazat archiválii „${item.title}“?`)) return;
+      const idx = SITE_DATA.archiveItems.findIndex(x => x.id === item.id);
+      if (idx !== -1) SITE_DATA.archiveItems.splice(idx, 1);
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+
+    modal.querySelector('#save-ar-btn')?.addEventListener('click', () => {
+      item.title = modal.querySelector('#edit-ar-title').value.trim();
+      item.category = modal.querySelector('#edit-ar-cat').value;
+      item.mediaType = modal.querySelector('#edit-ar-type').value;
+      item.tileSize = modal.querySelector('#edit-ar-size').value;
+      item.date = modal.querySelector('#edit-ar-date').value.trim();
+      item.author = modal.querySelector('#edit-ar-author').value.trim();
+      item.thumbnailUrl = modal.querySelector('#edit-ar-thumb').value.trim() || null;
+      item.description = modal.querySelector('#edit-ar-desc').value.trim();
+      item.transcription = modal.querySelector('#edit-ar-trans').value.trim();
+      item.pdfUrl = modal.querySelector('#edit-ar-pdf').value.trim() || null;
+      item.audioSrc = modal.querySelector('#edit-ar-audio').value.trim() || null;
+      item.photos = workingPhotos;
+      const checkedPages = Array.from(modal.querySelectorAll('.ar-page-cb:checked')).map(cb => cb.value);
+      item.pages = checkedPages.length ? checkedPages : ['main'];
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+      showCmsToast('Položka archivu byla uložena.');
+    });
+  }
+
+  function openLineageNodeEditor(node) {
+    const modal = createCmsModal(`✏️ Upravit generaci lékárníka: ${node.name}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Pořadí generace</label>
+          <input type="number" id="edit-lin-gen" class="cms-input" value="${escapeAttr(node.gen)}" />
+        </div>
+        <div class="cms-field">
+          <label>Jméno lékárníka</label>
+          <input type="text" id="edit-lin-name" class="cms-input" value="${escapeAttr(node.name || '')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Role / Popis pod jménem</label>
+          <input type="text" id="edit-lin-role" class="cms-input" value="${escapeAttr(node.role || '')}" />
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-lin-btn">✓ Uložit</button>
+    `, 'cms-modal-sm');
+
+    modal.querySelector('#save-lin-btn')?.addEventListener('click', () => {
+      node.gen = parseInt(modal.querySelector('#edit-lin-gen').value, 10) || node.gen;
+      node.name = modal.querySelector('#edit-lin-name').value.trim();
+      node.role = modal.querySelector('#edit-lin-role').value.trim();
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+  }
+
+  function openBrozikBoxEditor() {
+    const b = SITE_DATA.familyTree?.brozikConnection || {};
+    const modal = createCmsModal('✏️ Upravit box: Větev Brožíkových z Plzně', `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Nadpis větve</label>
+          <input type="text" id="edit-br-title" class="cms-input" value="${escapeAttr(b.title || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Jméno osobnosti (odkaz do rodokmenu)</label>
+          <input type="text" id="edit-br-spouse" class="cms-input" value="${escapeAttr(b.spouse || '')}" />
+        </div>
+        <div class="cms-field full-width">
+          <label>Popis spojení rodů</label>
+          <textarea id="edit-br-details" class="cms-textarea">${escapeHtml(b.details || '')}</textarea>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-br-btn">✓ Uložit</button>
+    `);
+
+    modal.querySelector('#save-br-btn')?.addEventListener('click', () => {
+      b.title = modal.querySelector('#edit-br-title').value.trim();
+      b.spouse = modal.querySelector('#edit-br-spouse').value.trim();
+      b.details = modal.querySelector('#edit-br-details').value.trim();
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+      modal.remove();
+    });
+  }
+
+  function renderPhotoRowsEditor(container, photosArray, includeDetailField = false) {
+    container.innerHTML = photosArray.map((p, idx) => `
+      <div class="cms-photo-row" data-pidx="${idx}">
+        <div class="cms-photo-thumb-preview">
+          ${p.url ? `<img src="${escapeAttr(p.url)}" alt="" />` : '🖼️'}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.3rem;">
+          <div class="cms-input-with-btn">
+            <input type="text" class="cms-input p-url-input" value="${escapeAttr(p.url || '')}" placeholder="Cesta k fotce (uploads/...)" />
+            <button type="button" class="cms-btn cms-btn-primary p-pick-btn" style="padding:0.35rem 0.6rem;">📁</button>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.3rem;">
+          <input type="text" class="cms-input p-cap-input" value="${escapeAttr(p.caption || '')}" placeholder="Popisek snímku..." />
+          ${includeDetailField ? `<input type="text" class="cms-input p-det-input" value="${escapeAttr(p.detail || '')}" placeholder="Doplňující poznámka..." />` : ''}
+        </div>
+        <button type="button" class="cms-btn cms-btn-danger p-del-btn" style="padding:0.35rem 0.55rem;" title="Odebrat snímek">✕</button>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.cms-photo-row').forEach(row => {
+      const idx = parseInt(row.getAttribute('data-pidx'), 10);
+      const urlInput = row.querySelector('.p-url-input');
+      const capInput = row.querySelector('.p-cap-input');
+      const detInput = row.querySelector('.p-det-input');
+
+      urlInput?.addEventListener('input', () => {
+        photosArray[idx].url = urlInput.value.trim() || null;
+      });
+      capInput?.addEventListener('input', () => {
+        photosArray[idx].caption = capInput.value;
+      });
+      detInput?.addEventListener('input', () => {
+        photosArray[idx].detail = detInput.value;
+      });
+
+      row.querySelector('.p-pick-btn')?.addEventListener('click', () => {
+        openFileManagerModal('image', (picked) => {
+          photosArray[idx].url = picked;
+          renderPhotoRowsEditor(container, photosArray, includeDetailField);
+        });
+      });
+
+      row.querySelector('.p-del-btn')?.addEventListener('click', () => {
+        if (photosArray.length <= 1) {
+          photosArray[0] = { url: null, caption: '' };
+        } else {
+          photosArray.splice(idx, 1);
+        }
+        renderPhotoRowsEditor(container, photosArray, includeDetailField);
+      });
+    });
+  }
+
+  // ==========================================================================
+  // 7. Section "+ Přidat položku" Buttons & Drag-and-Drop Timeline Overview Bar
+  // ==========================================================================
+  function injectSectionAddButtons() {
+    document.querySelectorAll('.cms-injected-add-wrap').forEach(el => el.remove());
+
+    // 1. Add Pribor Framed Photo
+    const priborStack = document.getElementById('pribor-right-photos');
+    if (priborStack) {
+      const btn = createAddButton('+ Přidat fotografický rámeček Příbora', () => {
+        if (!Array.isArray(SITE_DATA.priborPhotos)) SITE_DATA.priborPhotos = [];
+        const newItem = {
+          id: 'pribor-photo-' + Date.now(),
+          mode: 'split',
+          title: 'Nový snímek Příbora',
+          date: '20. století',
+          author: 'Archiv Příbor',
+          caption: 'Popisek pod rámečkem',
+          description: 'Podrobný popis snímku.',
+          photos: [{ url: null, caption: 'Nový snímek Příbora' }]
+        };
+        SITE_DATA.priborPhotos.push(newItem);
+        markDirty(true);
+        window.refreshPageView();
+        openFramedPhotoEditor(newItem, 'pribor');
+      });
+      priborStack.appendChild(btn);
+    }
+
+    // 2. Add Audio Track on index.html
+    const trackList = document.getElementById('track-list');
+    if (trackList) {
+      const btn = createAddButton('+ Přidat skladbu do přehrávače', () => {
+        if (!Array.isArray(SITE_DATA.audioTracks)) SITE_DATA.audioTracks = [];
+        const newTrack = {
+          id: 'track-' + Date.now(),
+          title: 'Nová nahrávka',
+          subtitle: 'PhMr. Václav Pokorný',
+          duration: '3:00',
+          src: '',
+          year: 'Archiv'
+        };
+        SITE_DATA.audioTracks.unshift(newTrack);
+        markDirty(true);
+        window.refreshPageView();
+        openAudioTrackEditor(newTrack, 0);
+      });
+      trackList.appendChild(btn);
+    }
+
+    // 3. Add Václav Framed Photos on vaclav-pokorny.html
+    const vpTopRight = document.getElementById('vaclav-top-right-photos');
+    if (vpTopRight) {
+      vpTopRight.appendChild(createAddButton('+ Přidat horní fotku', () => {
+        createNewVaclavPhoto('top-right');
+      }));
+    }
+    const vpSideLeft = document.getElementById('vaclav-timeline-left-photos');
+    if (vpSideLeft) {
+      vpSideLeft.appendChild(createAddButton('+ Přidat boční fotku k ose', () => {
+        createNewVaclavPhoto('timeline-left');
+      }));
+    }
+
+    // 4. Add Archive Item
+    const archiveGrid = document.getElementById('archive-grid');
+    if (archiveGrid) {
+      const pageScope = archiveGrid.getAttribute('data-gallery-page') || 'main';
+      const wrap = document.createElement('div');
+      wrap.className = 'cms-injected-add-wrap';
+      wrap.style.marginTop = '1.25rem';
+      const btn = createAddButton('+ Přidat novou položku do archivu', () => {
+        if (!Array.isArray(SITE_DATA.archiveItems)) SITE_DATA.archiveItems = [];
+        const newItem = {
+          id: 'doc-' + Date.now(),
+          category: 'fotografie',
+          mediaType: 'photo',
+          tileSize: 'normal',
+          pages: [pageScope === 'main' ? 'main' : pageScope, 'main'],
+          title: 'Nová archiválie',
+          date: '20. století',
+          author: 'Rodinný archiv',
+          description: 'Popis archivního materiálu.',
+          transcription: '',
+          photos: [{ url: null, caption: 'Nová archiválie' }]
+        };
+        SITE_DATA.archiveItems.push(newItem);
+        markDirty(true);
+        window.refreshPageView();
+        openArchiveItemEditor(newItem);
+      });
+      wrap.appendChild(btn);
+      archiveGrid.parentElement?.appendChild(wrap);
+    }
+  }
+
+  function createNewVaclavPhoto(placement) {
+    if (!Array.isArray(SITE_DATA.vaclavInteractivePhotos)) SITE_DATA.vaclavInteractivePhotos = [];
+    const newItem = {
+      id: 'vp-photo-' + Date.now(),
+      placement,
+      mode: 'split',
+      title: 'Nová fotografie Václava Pokorného',
+      date: '20. století',
+      author: 'Rodinný archiv',
+      caption: 'Popisek pod rámečkem',
+      description: 'Podrobný popis k fotografii.',
+      photos: [{ url: null, caption: 'Nová fotografie' }]
+    };
+    SITE_DATA.vaclavInteractivePhotos.push(newItem);
+    markDirty(true);
+    window.refreshPageView();
+    openFramedPhotoEditor(newItem, 'vaclav');
+  }
+
+  function createAddButton(label, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cms-add-item-btn cms-injected-add-wrap';
+    btn.textContent = label;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onClick();
+    });
+    return btn;
+  }
+
+  // Drag-and-Drop Timeline Overview Strip at the top of timeline sections
+  function injectTimelineDndBars() {
+    document.querySelectorAll('.cms-timeline-dnd-bar').forEach(el => el.remove());
+
+    const compactPharm = document.getElementById('pharmacy-timeline-compact');
+    if (compactPharm) {
+      insertDndBarBefore(compactPharm, SITE_DATA.pharmacyTimeline, 'pharmacy', 'year', 'Přehled a řazení milníků lékárny (přetáhněte medailonek myší)');
+    }
+
+    const fullPharm = document.getElementById('pharmacy-timeline-full');
+    if (fullPharm) {
+      insertDndBarBefore(fullPharm, SITE_DATA.pharmacyTimeline, 'pharmacy', 'year', 'Přehled a řazení milníků lékárny (přetáhněte medailonek myší)');
+    }
+
+    const fullVaclav = document.getElementById('vaclav-timeline-full');
+    if (fullVaclav) {
+      insertDndBarBefore(fullVaclav, SITE_DATA.vaclavTimeline, 'vaclav', 'period', 'Přehled a řazení kapitol života Václava Pokorného (přetáhněte medailonek myší)');
+    }
+  }
+
+  function insertDndBarBefore(timelineContainer, list, timelineType, timeKey, barTitle) {
+    if (!Array.isArray(list)) return;
+    const bar = document.createElement('div');
+    bar.className = 'cms-timeline-dnd-bar';
+    bar.innerHTML = `
+      <div class="cms-timeline-dnd-header">
+        <div class="cms-timeline-dnd-title">
+          <span>⠿ ${barTitle}</span>
+        </div>
+        <button type="button" class="cms-btn cms-btn-primary" id="dnd-add-${timelineType}">+ Přidat milník na osu</button>
+      </div>
+      <div class="cms-timeline-medallions">
+        ${list.map((item, idx) => `
+          <div class="cms-timeline-medallion" draggable="true" data-idx="${idx}" data-id="${item.id}" title="Přetáhněte pro změnu pořadí nebo klikněte pro úpravu">
+            <span class="cms-medallion-handle">⠿</span>
+            <div class="cms-medallion-info">
+              <div class="cms-medallion-year">${idx + 1}. ${escapeHtml(item[timeKey] || '')}</div>
+              <div class="cms-medallion-name">${escapeHtml(item.title || '')}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    timelineContainer.parentElement?.insertBefore(bar, timelineContainer);
+
+    bar.querySelector(`#dnd-add-${timelineType}`)?.addEventListener('click', () => {
+      const newEntry = {
+        id: `${timelineType}-${Date.now()}`,
+        [timeKey]: 'Nové období',
+        title: 'Nová kapitola časové osy',
+        person: timelineType === 'pharmacy' ? 'Rod Pokorných' : undefined,
+        description: 'Krátký popis období na stránce.',
+        longDescription: 'Podrobné vyprávění po otevření okna.',
+        photos: [{ url: null, caption: 'Nová kapitola časové osy' }]
+      };
+      list.push(newEntry);
+      markDirty(true);
+      window.refreshPageView();
+      openTimelineItemEditor(newEntry, timelineType);
+    });
+
+    let draggedIdx = null;
+    const medallions = bar.querySelectorAll('.cms-timeline-medallion');
+    medallions.forEach(med => {
+      med.addEventListener('click', () => {
+        const idx = parseInt(med.getAttribute('data-idx'), 10);
+        if (list[idx]) openTimelineItemEditor(list[idx], timelineType);
+      });
+
+      med.addEventListener('dragstart', (e) => {
+        draggedIdx = parseInt(med.getAttribute('data-idx'), 10);
+        med.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      med.addEventListener('dragend', () => {
+        med.classList.remove('dragging');
+        medallions.forEach(m => m.classList.remove('drag-over'));
+      });
+
+      med.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        med.classList.add('drag-over');
+      });
+
+      med.addEventListener('dragleave', () => {
+        med.classList.remove('drag-over');
+      });
+
+      med.addEventListener('drop', (e) => {
+        e.preventDefault();
+        med.classList.remove('drag-over');
+        const targetIdx = parseInt(med.getAttribute('data-idx'), 10);
+        if (draggedIdx === null || draggedIdx === targetIdx) return;
+        const [moved] = list.splice(draggedIdx, 1);
+        list.splice(targetIdx, 0, moved);
+        markDirty(true);
+        window.refreshPageView();
+        showCmsToast('Pořadí milníků na časové ose bylo upraveno.');
+      });
+    });
+  }
+
+  // ==========================================================================
+  // 8. Flowchart-Style Family Tree Editor (rodokmen.html in CMS mode)
+  // ==========================================================================
+  function initTreeFlowchartEditor() {
+    injectTreeHudCmsButtons();
+    wireTreeCardDraggingAndPorts();
+  }
+
+  function injectTreeHudCmsButtons() {
+    const cornerHud = document.querySelector('.canvas-hud-corner');
+    if (!cornerHud || document.getElementById('cms-tree-hud-group')) return;
+
+    const group = document.createElement('div');
+    group.id = 'cms-tree-hud-group';
+    group.className = 'hud-btn-group';
+    group.innerHTML = `
+      <button type="button" id="cms-btn-add-person" class="hud-btn hud-btn-text" style="background:#9e7b42; color:#fff; border-color:#b89254;">
+        + Přidat osobu
+      </button>
+      <button type="button" id="cms-btn-organize-tree" class="hud-btn hud-btn-text" title="Automaticky srovnat a vycentrovat celý rodokmen">
+        ✨ Uspořádat strom
+      </button>
+    `;
+    cornerHud.prepend(group);
+
+    group.querySelector('#cms-btn-add-person')?.addEventListener('click', () => {
+      createNewPersonInTree();
+    });
+
+    group.querySelector('#cms-btn-organize-tree')?.addEventListener('click', () => {
+      clearAllTreeOffsets();
+      recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+      markDirty(true);
+      window.refreshPageView();
+      if (window.treePanZoomApi) window.treePanZoomApi.centerTree(true);
+      showCmsToast('✨ Rodokmen byl automaticky uspořádán a vycentrován.');
+    });
+  }
+
+  function clearAllTreeOffsets() {
+    if (!SITE_DATA.familyTree?.treeRoot) return;
+    const walk = (n) => {
+      if (!n) return;
+      delete n.cmsOffsetX;
+      delete n.cmsOffsetY;
+      if (n.spouse) {
+        delete n.spouse.cmsOffsetX;
+        delete n.spouse.cmsOffsetY;
+      }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    };
+    walk(SITE_DATA.familyTree.treeRoot);
+    if (Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+      SITE_DATA.familyTree.detachedNodes.forEach(walk);
+    }
+  }
+
+  function recalculateGenerations(node, genNum = 1) {
+    if (!node) return;
+    node.gen = genNum;
+    if (node.role && /^\d+\.\s*gen\./.test(node.role)) {
+      node.role = node.role.replace(/^\d+\.\s*gen\./, `${genNum}. gen.`);
+    }
+    if (node.spouse) {
+      node.spouse.gen = genNum;
+    }
+    if (Array.isArray(node.children)) {
+      node.children.forEach(ch => recalculateGenerations(ch, genNum + 1));
+    }
+  }
+
+  function wireTreeCardDraggingAndPorts() {
+    const rootEl = document.getElementById('genealogy-root');
+    const svgEl = document.getElementById('cms-flowchart-svg');
+    if (!rootEl || !svgEl) return;
+
+    // 1. Clicking spouse ring in CMS mode unlinks the spouse into a standalone card
+    rootEl.querySelectorAll('.tree-couple-ring').forEach(ring => {
+      ring.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ownerId = ring.getAttribute('data-spouse-ring');
+        const owner = window.PERSON_MAP?.get(ownerId);
+        if (owner && owner.spouse) {
+          if (!confirm(`Odpojit partnera „${owner.spouse.name}“ do samostatné karty?`)) return;
+          if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+            SITE_DATA.familyTree.detachedNodes = [];
+          }
+          SITE_DATA.familyTree.detachedNodes.push(owner.spouse);
+          delete owner.spouse;
+          markDirty(true);
+          window.refreshPageView();
+          showCmsToast('Partnerská vazba byla odpojena.');
+        }
+      });
+    });
+
+    // 2. Clicking top port detaches child from parent (so it can be re-connected)
+    rootEl.querySelectorAll('.cms-port-top').forEach(topPort => {
+      topPort.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const personId = topPort.getAttribute('data-person-id');
+        if (personId === SITE_DATA.familyTree.treeRoot?.id) {
+          showCmsToast('Kořenovou kartu zakladatele nelze odpojit.');
+          return;
+        }
+        const detachedNode = detachPersonFromTree(personId);
+        if (detachedNode) {
+          if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+            SITE_DATA.familyTree.detachedNodes = [];
+          }
+          SITE_DATA.familyTree.detachedNodes.push(detachedNode);
+          markDirty(true);
+          window.refreshPageView();
+          showCmsToast(`Karta „${detachedNode.name}“ byla odpojena. Přetáhněte spodní bod nového rodiče na její horní bod.`);
+        }
+      });
+    });
+
+    // 3. Dragging from Bottom Port (Parent Output -> Child Top Port) or Spouse Port (⚭ -> another card)
+    rootEl.querySelectorAll('.cms-port-bottom, .cms-port-spouse').forEach(sourcePort => {
+      sourcePort.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        closeActivePopover();
+
+        const portType = sourcePort.getAttribute('data-port'); // 'bottom' | 'spouse'
+        const sourceId = sourcePort.getAttribute('data-person-id');
+        window._cmsDraggingTreeElement = true;
+
+        const scale = window.treePanZoomApi ? window.treePanZoomApi.getScale() : 1;
+        const rootRect = rootEl.getBoundingClientRect();
+        const portRect = sourcePort.getBoundingClientRect();
+        const startX = (portRect.left + portRect.width / 2 - rootRect.left) / scale;
+        const startY = (portRect.top + portRect.height / 2 - rootRect.top) / scale;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', portType === 'spouse' ? '#2c6e49' : '#9e7b42');
+        path.setAttribute('stroke-width', '3');
+        path.setAttribute('stroke-dasharray', '6,4');
+        svgEl.appendChild(path);
+
+        function onMove(ev) {
+          const curRootRect = rootEl.getBoundingClientRect();
+          const curX = (ev.clientX - curRootRect.left) / scale;
+          const curY = (ev.clientY - curRootRect.top) / scale;
+          const midY = (startY + curY) / 2;
+          path.setAttribute('d', `M ${startX} ${startY} C ${startX} ${midY}, ${curX} ${midY}, ${curX} ${curY}`);
+
+          document.querySelectorAll('.cms-tree-port').forEach(p => p.classList.remove('port-hover-target'));
+          const hovered = document.elementFromPoint(ev.clientX, ev.clientY);
+          const targetPort = hovered?.closest('.cms-tree-port');
+          if (targetPort && targetPort !== sourcePort) {
+            targetPort.classList.add('port-hover-target');
+          }
+        }
+
+        function onUp(ev) {
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          window._cmsDraggingTreeElement = false;
+          path.remove();
+          document.querySelectorAll('.cms-tree-port').forEach(p => p.classList.remove('port-hover-target'));
+
+          const dropEl = document.elementFromPoint(ev.clientX, ev.clientY);
+          const targetCard = dropEl?.closest('.tree-person-card');
+          const targetId = targetCard?.getAttribute('data-person-id');
+          if (!targetId || targetId === sourceId) return;
+
+          if (portType === 'bottom') {
+            connectParentToChild(sourceId, targetId);
+          } else if (portType === 'spouse') {
+            connectSpouses(sourceId, targetId);
+          }
+        }
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+    });
+
+    // 4. Dragging a Person Card to reposition it on the canvas (if moved > 5px; otherwise normal click popover fires)
+    rootEl.querySelectorAll('.tree-person-card').forEach(card => {
+      card.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || e.target.closest('.cms-tree-port')) return;
+        const personId = card.getAttribute('data-person-id');
+        const member = window.PERSON_MAP?.get(personId);
+        if (!member) return;
+
+        const startClientX = e.clientX;
+        const startClientY = e.clientY;
+        const origOffsetX = member.cmsOffsetX || 0;
+        const origOffsetY = member.cmsOffsetY || 0;
+        const scale = window.treePanZoomApi ? window.treePanZoomApi.getScale() : 1;
+        let hasMoved = false;
+
+        function onCardMove(ev) {
+          const dx = (ev.clientX - startClientX) / scale;
+          const dy = (ev.clientY - startClientY) / scale;
+          if (!hasMoved && Math.hypot(dx, dy) > 6) {
+            hasMoved = true;
+            window._cmsDraggingTreeElement = true;
+            closeActivePopover();
+          }
+          if (hasMoved) {
+            member.cmsOffsetX = origOffsetX + dx;
+            member.cmsOffsetY = origOffsetY + dy;
+            card.style.transform = `translate(${Math.round(member.cmsOffsetX)}px, ${Math.round(member.cmsOffsetY)}px)`;
+          }
+        }
+
+        function onCardUp() {
+          window.removeEventListener('mousemove', onCardMove);
+          window.removeEventListener('mouseup', onCardUp);
+          if (hasMoved) {
+            setTimeout(() => { window._cmsDraggingTreeElement = false; }, 50);
+            markDirty(true);
+          }
+        }
+
+        window.addEventListener('mousemove', onCardMove);
+        window.addEventListener('mouseup', onCardUp);
+      });
+    });
+  }
+
+  function isDescendantOf(candidateChildNode, targetId) {
+    if (!candidateChildNode) return false;
+    if (candidateChildNode.id === targetId) return true;
+    if (candidateChildNode.spouse && candidateChildNode.spouse.id === targetId) return true;
+    if (Array.isArray(candidateChildNode.children)) {
+      return candidateChildNode.children.some(ch => isDescendantOf(ch, targetId));
+    }
+    return false;
+  }
+
+  function detachPersonFromTree(targetId) {
+    // Check detachedNodes first
+    if (Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+      const dIdx = SITE_DATA.familyTree.detachedNodes.findIndex(n => n.id === targetId);
+      if (dIdx !== -1) {
+        return SITE_DATA.familyTree.detachedNodes.splice(dIdx, 1)[0];
+      }
+    }
+
+    let removed = null;
+    const walk = (node) => {
+      if (!node || removed) return;
+      if (node.spouse && node.spouse.id === targetId) {
+        removed = node.spouse;
+        delete node.spouse;
+        return;
+      }
+      if (Array.isArray(node.children)) {
+        const idx = node.children.findIndex(c => c.id === targetId);
+        if (idx !== -1) {
+          removed = node.children.splice(idx, 1)[0];
+          return;
+        }
+        node.children.forEach(walk);
+      }
+    };
+    walk(SITE_DATA.familyTree.treeRoot);
+    return removed;
+  }
+
+  function connectParentToChild(parentId, childId) {
+    if (childId === SITE_DATA.familyTree.treeRoot?.id) {
+      alert('Zakladatele rodu (kořen stromu) nelze připojit jako dítě pod jinou kartu.');
+      return;
+    }
+
+    let parentNode = window.PERSON_MAP?.get(parentId);
+    const childNode = window.PERSON_MAP?.get(childId);
+    if (!parentNode || !childNode) return;
+
+    // If user dragged from the spouse card of a couple, attach child to the main couple node
+    if (parentNode._isSpouseOf && window.PERSON_MAP?.has(parentNode._isSpouseOf)) {
+      parentNode = window.PERSON_MAP.get(parentNode._isSpouseOf);
+    }
+
+    if (isDescendantOf(childNode, parentNode.id)) {
+      alert('Nelze vytvořit smyčku (nelze připojit předka pod jeho vlastního potomka).');
+      return;
+    }
+
+    const detachedChild = detachPersonFromTree(childId);
+    if (!detachedChild) return;
+
+    if (!Array.isArray(parentNode.children)) parentNode.children = [];
+    delete detachedChild.cmsOffsetX;
+    delete detachedChild.cmsOffsetY;
+    parentNode.children.push(detachedChild);
+
+    recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+    markDirty(true);
+    window.refreshPageView();
+    showCmsToast(`🔗 Propojeno: ${parentNode.name} → ${detachedChild.name}`);
+  }
+
+  function connectSpouses(personAId, personBId) {
+    let nodeA = window.PERSON_MAP?.get(personAId);
+    const nodeB = window.PERSON_MAP?.get(personBId);
+    if (!nodeA || !nodeB) return;
+
+    if (nodeA._isSpouseOf) {
+      nodeA = window.PERSON_MAP.get(nodeA._isSpouseOf);
+    }
+    if (nodeB.id === SITE_DATA.familyTree.treeRoot?.id || (Array.isArray(nodeB.children) && nodeB.children.length > 0)) {
+      alert('Jako partnera připojte kartu bez vlastních podvětví (nebo nejprve odpojte její děti).');
+      return;
+    }
+
+    const detachedB = detachPersonFromTree(personBId);
+    if (!detachedB) return;
+
+    if (nodeA.spouse) {
+      if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
+      SITE_DATA.familyTree.detachedNodes.push(nodeA.spouse);
+    }
+
+    delete detachedB.cmsOffsetX;
+    delete detachedB.cmsOffsetY;
+    detachedB.gen = nodeA.gen;
+    nodeA.spouse = detachedB;
+
+    markDirty(true);
+    window.refreshPageView();
+    showCmsToast(`⚭ Propojeni partneři: ${nodeA.name} & ${detachedB.name}`);
+  }
+
+  function createNewPersonInTree() {
+    const newPerson = {
+      id: 'person-' + Date.now(),
+      gen: 7,
+      name: 'Nový člen rodu',
+      role: '7. gen. • Člen rodu Pokorných',
+      branch: 'family',
+      birthDate: '* doplnit datum',
+      deathDate: '—',
+      photo: null,
+      photoCaption: 'Fotografie osobnosti',
+      description: 'Životopisný medailonek osobnosti.',
+      photos: [{ url: null, caption: 'Nový člen rodu' }]
+    };
+
+    if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+      SITE_DATA.familyTree.detachedNodes = [];
+    }
+    SITE_DATA.familyTree.detachedNodes.push(newPerson);
+    syncPersonLinksFromTree();
+    markDirty(true);
+    window.refreshPageView();
+    openTreePersonEditor(newPerson, true);
+  }
+
+  function openTreePersonEditor(member, isNewlyCreated = false) {
+    const workingPhotos = JSON.parse(JSON.stringify(
+      Array.isArray(member.photos) && member.photos.length
+        ? member.photos
+        : [{ url: member.photo || null, caption: member.photoCaption || member.name }]
+    ));
+
+    // Build list of possible parents so user can also change parent via dropdown OR flowchart drag
+    const allPotentialParents = [];
+    window.PERSON_MAP?.forEach((p) => {
+      if (p.id !== member.id && !p._isSpouseOf && !isDescendantOf(member, p.id)) {
+        allPotentialParents.push(p);
+      }
+    });
+
+    const currentParentId = member._parentId || '';
+
+    const modal = createCmsModal(`✏️ Upravit osobnost v rodokmenu: ${member.name}`, `
+      <div class="cms-field-grid">
+        <div class="cms-field">
+          <label>Jméno a příjmení (vč. titulů)</label>
+          <input type="text" id="edit-tp-name" class="cms-input" value="${escapeAttr(member.name || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Role / Generace na kartě</label>
+          <input type="text" id="edit-tp-role" class="cms-input" value="${escapeAttr(member.role || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Datum a místo narození</label>
+          <input type="text" id="edit-tp-birth" class="cms-input" value="${escapeAttr(member.birthDate || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Datum a místo úmrtí (nebo „—“)</label>
+          <input type="text" id="edit-tp-death" class="cms-input" value="${escapeAttr(member.deathDate || '')}" />
+        </div>
+        <div class="cms-field">
+          <label>Barevná větev karty</label>
+          <select id="edit-tp-branch" class="cms-select">
+            <option value="pharmacist" ${member.branch === 'pharmacist' ? 'selected' : ''}>🟢 Lékárnická linie (1.–6. gen.)</option>
+            <option value="brozik" ${member.branch === 'brozik' ? 'selected' : ''}>🟡 Větev Brožíkových z Plzně</option>
+            <option value="family" ${member.branch === 'family' ? 'selected' : ''}>🌿 Rodina a sourozenci</option>
+            <option value="modern" ${member.branch === 'modern' ? 'selected' : ''}>🌿 Současné generace (8.–9. gen.)</option>
+          </select>
+        </div>
+        <div class="cms-field">
+          <label>Nadřazený rodič (lze měnit i přetažením bodů v diagramu)</label>
+          <select id="edit-tp-parent" class="cms-select" ${member.id === SITE_DATA.familyTree.treeRoot?.id ? 'disabled' : ''}>
+            <option value="">— Nezařazeno / Kořen / Partner —</option>
+            ${allPotentialParents.map(p => `
+              <option value="${escapeAttr(p.id)}" ${p.id === currentParentId ? 'selected' : ''}>${escapeHtml(p.name)} (${p.gen}. gen.)</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="cms-field full-width">
+          <label>Životopis a popis osobnosti (podporuje odkazy [www.web.cz](Název) i jména rodu)</label>
+          <textarea id="edit-tp-desc" class="cms-textarea" style="min-height:130px;">${escapeHtml(member.description || '')}</textarea>
+        </div>
+        <div class="cms-field full-width">
+          <label>Fotografie osobnosti (zobrazí se v medailonku po rozkliknutí)</label>
+          <div id="edit-tp-photos-wrap" class="cms-photo-list-editor"></div>
+          <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0; align-self:flex-start; margin-top:0.35rem;" id="add-tp-photo-btn">+ Přidat fotografii</button>
+        </div>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-danger" id="delete-tp-btn" ${member.id === SITE_DATA.familyTree.treeRoot?.id ? 'disabled title="Kořen rodokmenu nelze smazat"' : ''}>
+        🗑️ Smazat osobu
+      </button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+        <button type="button" class="cms-btn cms-btn-primary" id="save-tp-btn">✓ Uložit osobnost</button>
+      </div>
+    `);
+
+    const photosWrap = modal.querySelector('#edit-tp-photos-wrap');
+    renderPhotoRowsEditor(photosWrap, workingPhotos, false);
+
+    modal.querySelector('#add-tp-photo-btn')?.addEventListener('click', () => {
+      workingPhotos.push({ url: null, caption: member.name });
+      renderPhotoRowsEditor(photosWrap, workingPhotos, false);
+    });
+
+    modal.querySelector('#delete-tp-btn')?.addEventListener('click', () => {
+      if (member.id === SITE_DATA.familyTree.treeRoot?.id) return;
+      if (!confirm(`Opravdu chcete trvale odstranit osobu „${member.name}“ z rodokmenu?`)) return;
+      const removed = detachPersonFromTree(member.id);
+      if (removed && Array.isArray(removed.children) && removed.children.length > 0) {
+        if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
+        removed.children.forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+      }
+      syncPersonLinksFromTree();
+      markDirty(true);
+      window.refreshPageView();
+      modal.remove();
+      showCmsToast('Osoba byla odstraněna z rodokmenu.');
+    });
+
+    modal.querySelector('#save-tp-btn')?.addEventListener('click', () => {
+      member.name = modal.querySelector('#edit-tp-name').value.trim() || 'Člen rodu';
+      member.role = modal.querySelector('#edit-tp-role').value.trim();
+      member.birthDate = modal.querySelector('#edit-tp-birth').value.trim();
+      member.deathDate = modal.querySelector('#edit-tp-death').value.trim() || '—';
+      member.branch = modal.querySelector('#edit-tp-branch').value;
+      member.description = modal.querySelector('#edit-tp-desc').value.trim();
+      member.photos = workingPhotos;
+      member.photo = workingPhotos[0]?.url || null;
+      member.photoCaption = workingPhotos[0]?.caption || member.name;
+
+      const selectedParentId = modal.querySelector('#edit-tp-parent')?.value || '';
+      if (member.id !== SITE_DATA.familyTree.treeRoot?.id && selectedParentId !== currentParentId) {
+        if (selectedParentId) {
+          connectParentToChild(selectedParentId, member.id);
+        }
+      }
+
+      syncPersonLinksFromTree();
+      markDirty(true);
+      window.refreshPageView();
+      modal.remove();
+      showCmsToast(`Medailonek osobnosti „${member.name}“ byl uložen.`);
+    });
+  }
+
+  function syncPersonLinksFromTree() {
+    if (!SITE_DATA.familyTree?.treeRoot) return;
+    if (!Array.isArray(SITE_DATA.personLinks)) SITE_DATA.personLinks = [];
+    const existingById = new Map(SITE_DATA.personLinks.map(p => [p.id, p]));
+
+    const ensureEntry = (node) => {
+      if (!node || !node.id || !node.name) return;
+      const cleanName = node.name.trim();
+      if (existingById.has(node.id)) {
+        const entry = existingById.get(node.id);
+        if (!entry.patterns.includes(cleanName) && cleanName.split(/\s+/).length >= 2) {
+          entry.patterns.unshift(cleanName);
+        }
+      } else if (cleanName.split(/\s+/).length >= 2) {
+        SITE_DATA.personLinks.push({
+          id: node.id,
+          patterns: [cleanName]
+        });
+      }
+      if (node.spouse) ensureEntry(node.spouse);
+      if (Array.isArray(node.children)) node.children.forEach(ensureEntry);
+    };
+    ensureEntry(SITE_DATA.familyTree.treeRoot);
+  }
+
+  // ==========================================================================
+  // 9. Folder-Organized File Manager & Direct Upload in File Picker
+  // ==========================================================================
+  function openFileManagerModal(filterType = null, onPickCallback = null) {
+    const isPickerMode = typeof onPickCallback === 'function';
+    const title = isPickerMode
+      ? '📁 Vybrat soubor (nebo nahrát nový přímo do složky)'
+      : '📁 Správce souborů, složek (/uploads) a nastavení hesla';
+
+    const modal = createCmsModal(title, `
+      <div class="cms-file-browser-layout">
+        <!-- Left Sidebar: Folders on disk -->
+        <aside class="cms-folder-sidebar">
+          <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:#9e7b42; letter-spacing:0.06em;">
+            Složky na disku (/uploads)
+          </div>
+          <div id="cms-folder-tree-list" class="cms-folder-list"></div>
+          <div style="display:flex; flex-direction:column; gap:0.35rem; border-top:1px solid #d5c7b0; padding-top:0.6rem;">
+            <button type="button" class="cms-btn cms-btn-primary" id="cms-new-folder-btn" style="width:100%;">+ Nová podsložka</button>
+            <button type="button" class="cms-btn cms-btn-outline" style="color:#9b2226; border-color:#d5c7b0; width:100%;" id="cms-del-folder-btn">🗑️ Smazat prázdnou složku</button>
+          </div>
+        </aside>
+
+        <!-- Right Main Area: Direct Upload Button + Files Grid -->
+        <div class="cms-file-main-pane">
+          <div class="cms-file-toolbar">
+            <div>
+              <span style="font-size:0.76rem; color:#5a605d;">Aktivní složka:</span>
+              <strong id="cms-current-folder-label" style="font-size:0.88rem; color:#1f2421; margin-left:0.3rem;">${escapeHtml(activeUploadFolder)}</strong>
+            </div>
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+              <label class="cms-btn cms-btn-publish" style="cursor:pointer;">
+                ⬆️ Nahrát soubor(y) do této složky
+                <input type="file" id="cms-direct-upload-input" multiple hidden />
+              </label>
+            </div>
+          </div>
+
+          <div id="cms-files-grid-container" class="cms-files-grid"></div>
+        </div>
+      </div>
+
+      ${!isPickerMode ? `
+        <div style="margin-top:0.75rem; padding-top:0.85rem; border-top:1px solid #d5c7b0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+          <div style="font-size:0.84rem; font-weight:600; color:#2c4c3e;">🔑 Změna administrátorského hesla</div>
+          <div style="display:flex; gap:0.45rem; align-items:center;">
+            <input type="password" id="cms-new-pass-input" class="cms-input" placeholder="Nové heslo (min. 6 znaků)..." style="width:220px;" />
+            <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" id="cms-change-pass-btn">Změnit heslo</button>
+          </div>
+        </div>
+      ` : ''}
+    `, `
+      <span style="font-size:0.78rem; color:#5a605d;">
+        💡 Soubory nahrané nebo přesunuté do složky se fyzicky ukládají do příslušné podsložky v <code>/uploads/</code>.
+      </span>
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zavřít okno</button>
+    `, 'cms-modal-xl');
+
+    const folderListEl = modal.querySelector('#cms-folder-tree-list');
+    const folderLabelEl = modal.querySelector('#cms-current-folder-label');
+    const filesGridEl = modal.querySelector('#cms-files-grid-container');
+
+    function renderFolderAndFileBrowser() {
+      if (!serverFolders.includes(activeUploadFolder)) {
+        activeUploadFolder = 'uploads';
+      }
+      folderLabelEl.textContent = activeUploadFolder;
+
+      folderListEl.innerHTML = serverFolders.map(folderPath => {
+        const depth = folderPath.split('/').length - 1;
+        const indent = depth * 12;
+        const shortName = folderPath === 'uploads' ? '📂 uploads (kořen)' : `↳ 📁 ${folderPath.split('/').pop()}`;
+        const count = serverFiles.filter(f => f.folder === folderPath).length;
+        return `
+          <button type="button" class="cms-folder-item ${folderPath === activeUploadFolder ? 'active' : ''}" data-folder="${escapeAttr(folderPath)}" style="padding-left:${10 + indent}px;">
+            <span>${escapeHtml(shortName)}</span>
+            <small style="opacity:0.75;">${count}</small>
+          </button>
+        `;
+      }).join('');
+
+      folderListEl.querySelectorAll('.cms-folder-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeUploadFolder = btn.getAttribute('data-folder');
+          renderFolderAndFileBrowser();
+        });
+      });
+
+      let visibleFiles = serverFiles.filter(f => f.folder === activeUploadFolder);
+      if (filterType) {
+        visibleFiles = visibleFiles.filter(f => f.type === filterType);
+      }
+
+      if (visibleFiles.length === 0) {
+        filesGridEl.innerHTML = `
+          <div style="grid-column:1/-1; padding:2.5rem 1rem; text-align:center; color:#5a605d;">
+            Ve složce <strong>${escapeHtml(activeUploadFolder)}</strong> zatím nejsou žádné ${filterType ? 'odpovídající ' : ''}soubory.<br/>
+            Klikněte na <strong>„⬆️ Nahrát soubor(y) do této složky“</strong> vpravo nahoře.
+          </div>
+        `;
+        return;
+      }
+
+      const uploadFoldersOnly = serverFolders.filter(fl => fl.startsWith('uploads'));
+
+      filesGridEl.innerHTML = visibleFiles.map(file => {
+        const thumbHtml = file.type === 'image'
+          ? `<img src="${escapeAttr(file.path)}" alt="${escapeAttr(file.name)}" />`
+          : file.type === 'pdf'
+          ? '📄'
+          : file.type === 'audio'
+          ? '🎵'
+          : '📁';
+        const kb = Math.max(1, Math.round((file.size || 0) / 1024));
+        const canModify = file.path.startsWith('uploads/');
+
+        return `
+          <div class="cms-file-card">
+            <div>
+              <div class="cms-file-thumb">${thumbHtml}</div>
+              <div class="cms-file-meta">
+                <div class="cms-file-name" title="${escapeAttr(file.path)}">${escapeHtml(file.name)}</div>
+                <div style="color:#5a605d;">${kb} KB • ${file.type}</div>
+              </div>
+            </div>
+            <div class="cms-file-actions">
+              ${isPickerMode ? `
+                <button type="button" class="cms-btn cms-btn-primary" data-pick-file="${escapeAttr(file.path)}" style="width:100%;">
+                  ✓ Vybrat tento soubor
+                </button>
+              ` : ''}
+              ${canModify ? `
+                <select class="cms-select" data-move-file="${escapeAttr(file.path)}" style="padding:0.25rem 0.4rem; font-size:0.73rem;" title="Přesunout soubor do jiné složky">
+                  <option value="">📂 Přesunout do složky…</option>
+                  ${uploadFoldersOnly.filter(fl => fl !== file.folder).map(fl => `
+                    <option value="${escapeAttr(fl)}">→ ${escapeHtml(fl)}</option>
+                  `).join('')}
+                </select>
+                <button type="button" class="cms-btn cms-btn-danger" data-del-file="${escapeAttr(file.path)}" style="width:100%; padding:0.25rem;">
+                  🗑️ Smazat
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      filesGridEl.querySelectorAll('[data-pick-file]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const pickedPath = btn.getAttribute('data-pick-file');
+          modal.remove();
+          onPickCallback(pickedPath);
+        });
+      });
+
+      filesGridEl.querySelectorAll('[data-move-file]').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          const fromPath = sel.getAttribute('data-move-file');
+          const targetFolder = sel.value;
+          if (!targetFolder) return;
+          const res = await fetch('api.php?action=move_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: JSON.stringify({ fromPath, targetFolder })
+          });
+          const data = await res.json();
+          if (data?.ok) {
+            serverFiles = data.files || serverFiles;
+            serverFolders = data.folders || serverFolders;
+            replaceFilePathInSiteData(fromPath, data.newPath);
+            renderFolderAndFileBrowser();
+            showCmsToast(`Soubor přesunut do ${targetFolder}`);
+          } else {
+            alert(data?.error || 'Přesun se nezdařil.');
+          }
+        });
+      });
+
+      filesGridEl.querySelectorAll('[data-del-file]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const relPath = btn.getAttribute('data-del-file');
+          if (!confirm(`Smazat soubor „${relPath}“ z disku?`)) return;
+          const res = await fetch('api.php?action=delete_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: JSON.stringify({ path: relPath })
+          });
+          const data = await res.json();
+          if (data?.ok) {
+            serverFiles = data.files || [];
+            serverFolders = data.folders || serverFolders;
+            renderFolderAndFileBrowser();
+          }
+        });
+      });
+    }
+
+    renderFolderAndFileBrowser();
+
+    // Create subfolder on disk
+    modal.querySelector('#cms-new-folder-btn')?.addEventListener('click', async () => {
+      const parent = activeUploadFolder.startsWith('uploads') ? activeUploadFolder : 'uploads';
+      const folderName = prompt(`Zadejte název nové podsložky uvnitř „${parent}“ (např. kroniky, portrety, 1940):`);
+      if (!folderName || !folderName.trim()) return;
+      const res = await fetch('api.php?action=create_folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify({ parentFolder: parent, folderName: folderName.trim() })
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        serverFiles = data.files || serverFiles;
+        serverFolders = data.folders || serverFolders;
+        activeUploadFolder = data.createdFolder || activeUploadFolder;
+        renderFolderAndFileBrowser();
+        showCmsToast(`📁 Vytvořena složka ${activeUploadFolder}`);
+      } else {
+        alert(data?.error || 'Složku se nepodařilo vytvořit.');
+      }
+    });
+
+    // Delete empty folder
+    modal.querySelector('#cms-del-folder-btn')?.addEventListener('click', async () => {
+      if (activeUploadFolder === 'uploads' || activeUploadFolder === 'uschovna') {
+        alert('Kořenovou složku nelze smazat.');
+        return;
+      }
+      if (!confirm(`Smazat prázdnou složku „${activeUploadFolder}“?`)) return;
+      const res = await fetch('api.php?action=delete_folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify({ folderPath: activeUploadFolder })
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        serverFiles = data.files || serverFiles;
+        serverFolders = data.folders || serverFolders;
+        activeUploadFolder = 'uploads';
+        renderFolderAndFileBrowser();
+        showCmsToast('Složka byla smazána.');
+      } else {
+        alert(data?.error || 'Složku nelze smazat.');
+      }
+    });
+
+    // Direct upload into the active folder (and auto-select if in picker mode!)
+    modal.querySelector('#cms-direct-upload-input')?.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+
+      const targetFolder = activeUploadFolder.startsWith('uploads') ? activeUploadFolder : 'uploads';
+      let lastUploadedPath = null;
+
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('folder', targetFolder);
+        fd.append('file', file);
+        const res = await fetch(`api.php?action=upload&folder=${encodeURIComponent(targetFolder)}`, {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrfToken },
+          credentials: 'same-origin',
+          body: fd
+        });
+        const data = await res.json();
+        if (data?.ok) {
+          serverFiles = data.files || serverFiles;
+          serverFolders = data.folders || serverFolders;
+          lastUploadedPath = data.path;
+        } else {
+          alert(data?.error || `Chyba při nahrávání ${file.name}`);
+        }
+      }
+
+      renderFolderAndFileBrowser();
+      if (lastUploadedPath) {
+        showCmsToast(`⬆️ Nahráno do ${targetFolder}: ${lastUploadedPath.split('/').pop()}`);
+        if (isPickerMode && files.length === 1) {
+          modal.remove();
+          onPickCallback(lastUploadedPath);
+        }
+      }
+    });
+
+    // Change password button
+    modal.querySelector('#cms-change-pass-btn')?.addEventListener('click', async () => {
+      const passInput = modal.querySelector('#cms-new-pass-input');
+      const newPassword = passInput?.value.trim() || '';
+      if (newPassword.length < 6) {
+        alert('Nové heslo musí mít alespoň 6 znaků.');
+        return;
+      }
+      const res = await fetch('api.php?action=change_password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        passInput.value = '';
+        showCmsToast('🔑 Heslo do administrace bylo úspěšně změněno.');
+      } else {
+        alert(data?.error || 'Změna hesla se nezdařila.');
+      }
+    });
+  }
+
+  function replaceFilePathInSiteData(oldPath, newPath) {
+    if (!oldPath || !newPath) return;
+    const raw = JSON.stringify(SITE_DATA);
+    const updated = raw.split(JSON.stringify(oldPath)).join(JSON.stringify(newPath));
+    if (updated !== raw) {
+      Object.assign(SITE_DATA, JSON.parse(updated));
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') window.refreshPageView();
+    }
+  }
+
+  // ==========================================================================
+  // Helpers: Modal Builder, Nested PageText Getter/Setter, Toast, Escape
+  // ==========================================================================
+  function createCmsModal(title, bodyHtml, footerHtml, sizeClass = '') {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'cms-modal-backdrop open';
+    backdrop.setAttribute('data-ui-panel', 'true');
+    backdrop.innerHTML = `
+      <div class="cms-modal-card ${sizeClass}">
+        <div class="cms-modal-header">
+          <h3>${title}</h3>
+          <button type="button" class="cms-modal-close" data-close-modal title="Zavřít">✕</button>
+        </div>
+        <div class="cms-modal-body">${bodyHtml}</div>
+        <div class="cms-modal-footer">${footerHtml}</div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+
+    backdrop.querySelectorAll('[data-close-modal]').forEach(btn => {
+      btn.addEventListener('click', () => backdrop.remove());
+    });
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    });
+    return backdrop;
+  }
+
+  function getNestedPageText(keyPath) {
+    if (!SITE_DATA.pageText || !keyPath) return '';
+    return keyPath.split('.').reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : undefined), SITE_DATA.pageText);
+  }
+
+  function setNestedPageText(keyPath, value) {
+    if (!keyPath) return;
+    if (!SITE_DATA.pageText) SITE_DATA.pageText = {};
+    const parts = keyPath.split('.');
+    let curr = SITE_DATA.pageText;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!curr[parts[i]] || typeof curr[parts[i]] !== 'object') {
+        curr[parts[i]] = {};
+      }
+      curr = curr[parts[i]];
+    }
+    curr[parts[parts.length - 1]] = value;
+  }
+
+  function showCmsToast(message) {
+    document.querySelectorAll('.cms-toast').forEach(t => t.remove());
+    const toast = document.createElement('div');
+    toast.className = 'cms-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3400);
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;');
+  }
+})();

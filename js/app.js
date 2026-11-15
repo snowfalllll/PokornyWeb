@@ -1,28 +1,69 @@
 document.addEventListener('DOMContentLoaded', () => {
   applyCmsDraftPreviewIfActive();
+  refreshPageView();
+  initUniversalModal();
+  handleDeepLinkHash();
+  bootstrapAuthenticatedCmsIfRequested();
+});
+
+async function bootstrapAuthenticatedCmsIfRequested() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('cms') === '0') {
+    sessionStorage.removeItem('pokorny_cms_mode');
+    return;
+  }
+  const isCmsRequested = params.get('cms') === '1' || sessionStorage.getItem('pokorny_cms_mode') === '1';
+  if (!isCmsRequested) return;
+
+  try {
+    const res = await fetch('api.php?action=status', { credentials: 'same-origin' });
+    const data = await res.json();
+    if (data && data.authenticated) {
+      sessionStorage.setItem('pokorny_cms_mode', '1');
+      window.__POKORNY_CMS_INIT_STATUS__ = data;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'api.php?action=admin_css';
+      document.head.appendChild(link);
+
+      const script = document.createElement('script');
+      script.src = 'api.php?action=admin_bundle';
+      document.body.appendChild(script);
+    } else {
+      sessionStorage.removeItem('pokorny_cms_mode');
+      const pageName = window.location.pathname.split('/').pop() || 'index.html';
+      window.location.replace(`admin.html?return=${encodeURIComponent(pageName)}`);
+    }
+  } catch (e) {
+    sessionStorage.removeItem('pokorny_cms_mode');
+    const pageName = window.location.pathname.split('/').pop() || 'index.html';
+    window.location.replace(`admin.html?return=${encodeURIComponent(pageName)}`);
+  }
+}
+
+window.refreshPageView = function refreshPageView() {
   applyPageTextFromCms();
+  initPriborSection();
   initMainPageTimeline();
   initFullPharmacyPage();
   initFullVaclavPage();
   initAudioPlayerPanel();
   initMediaGallery();
-  initUniversalModal();
-  handleDeepLinkHash();
-});
+  if (typeof window.onCmsAfterPageRender === 'function') {
+    window.onCmsAfterPageRender();
+  }
+};
 
 // ==========================================================================
-// -1. Live CMS Draft Preview Mode (?cms_preview=1 + localStorage draft)
+// -1. Live CMS Draft Sync
 // ==========================================================================
 function applyCmsDraftPreviewIfActive() {
   const params = new URLSearchParams(window.location.search);
+  const isCmsMode = params.get('cms') === '1' || sessionStorage.getItem('pokorny_cms_mode') === '1';
   const isPreviewUrl = params.get('cms_preview') === '1';
   const isPreviewSession = sessionStorage.getItem('pokorny_cms_preview_active') === '1';
 
-  if (!isPreviewUrl && !isPreviewSession) return;
-
-  if (isPreviewUrl) {
-    sessionStorage.setItem('pokorny_cms_preview_active', '1');
-  }
+  if (!isCmsMode && !isPreviewUrl && !isPreviewSession) return;
 
   try {
     const rawDraft = localStorage.getItem('pokorny_cms_draft_data');
@@ -33,47 +74,8 @@ function applyCmsDraftPreviewIfActive() {
       }
     }
   } catch (e) {
-    console.warn('CMS Preview draft parse error:', e);
+    console.warn('CMS draft parse error:', e);
   }
-
-  renderCmsPreviewBanner();
-
-  // Listen for live updates from the CMS tab so preview updates immediately
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'pokorny_cms_draft_data' && e.newValue) {
-      try {
-        const updated = JSON.parse(e.newValue);
-        Object.assign(SITE_DATA, updated);
-        applyPageTextFromCms();
-        initMainPageTimeline();
-        initFullPharmacyPage();
-        initFullVaclavPage();
-        initAudioPlayerPanel();
-        initMediaGallery();
-      } catch (err) {}
-    }
-  });
-}
-
-function renderCmsPreviewBanner() {
-  if (document.getElementById('cms-live-preview-banner')) return;
-  const banner = document.createElement('div');
-  banner.id = 'cms-live-preview-banner';
-  banner.style.cssText = 'background:#b86b14; color:#fff; padding:0.45rem 1.25rem; font-family:Inter,sans-serif; font-size:0.82rem; font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:1rem; z-index:9999; position:relative; box-shadow:0 2px 8px rgba(0,0,0,0.25);';
-  banner.innerHTML = `
-    <span>🔍 <strong>REŽIM NÁHLEDU Z CMS:</strong> Prohlížíte si nepublikovanou pracovní verzi webu.</span>
-    <div style="display:flex; gap:0.5rem; align-items:center;">
-      <button type="button" id="btn-exit-cms-preview" style="background:#181d23; color:#fff; border:none; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer; font-weight:600; font-size:0.78rem;">Ukončit náhled (zobrazit veřejný web)</button>
-    </div>
-  `;
-  document.body.prepend(banner);
-
-  document.getElementById('btn-exit-cms-preview')?.addEventListener('click', () => {
-    sessionStorage.removeItem('pokorny_cms_preview_active');
-    const url = new URL(window.location.href);
-    url.searchParams.delete('cms_preview');
-    window.location.href = url.toString();
-  });
 }
 
 // ==========================================================================
@@ -87,18 +89,28 @@ function getCmsValue(keyPath) {
 function applyPageTextFromCms() {
   if (!SITE_DATA.pageText) return;
 
-  // Plain text bindings
+  // Plain text bindings (also support markdown & people links if present in descriptions, except inside interactive <a>/<button> tags)
   document.querySelectorAll('[data-cms]').forEach(el => {
-    const val = getCmsValue(el.getAttribute('data-cms'));
+    const key = el.getAttribute('data-cms');
+    const val = getCmsValue(key);
     if (typeof val === 'string' && val.trim() !== '') {
-      el.textContent = val;
+      el.setAttribute('data-raw-text', val);
+      const tag = el.tagName.toLowerCase();
+      // Do not inject nested <a> links inside an <a> or <button> element
+      if (tag === 'a' || tag === 'button' || el.closest('a, button')) {
+        el.textContent = val;
+      } else {
+        el.innerHTML = linkifyFamilyNames(val);
+      }
     }
   });
 
-  // Auto-linkified text bindings (e.g., paragraphs with family names)
+  // Auto-linkified text bindings (paragraphs with family names & markdown links)
   document.querySelectorAll('[data-cms-linkify]').forEach(el => {
-    const val = getCmsValue(el.getAttribute('data-cms-linkify'));
+    const key = el.getAttribute('data-cms-linkify');
+    const val = getCmsValue(key);
     if (typeof val === 'string' && val.trim() !== '') {
+      el.setAttribute('data-raw-text', val);
       el.innerHTML = linkifyFamilyNames(val);
     }
   });
@@ -106,64 +118,168 @@ function applyPageTextFromCms() {
   // Hero card background images on Úvod
   document.querySelectorAll('[data-cms-bg]').forEach(el => {
     const imgUrl = getCmsValue(el.getAttribute('data-cms-bg'));
+    const placeholder = el.querySelector('.hero-img-placeholder');
     if (typeof imgUrl === 'string' && imgUrl.trim() !== '') {
       el.style.backgroundImage = `url('${imgUrl}')`;
       el.style.backgroundSize = 'cover';
       el.style.backgroundPosition = 'center';
-      const placeholder = el.querySelector('.hero-img-placeholder');
       if (placeholder) placeholder.style.display = 'none';
+    } else {
+      el.style.backgroundImage = '';
+      if (placeholder) placeholder.style.display = '';
     }
   });
 
   // Main page Václav Pokorný portrait image (if uploaded in CMS)
   const homePortrait = document.getElementById('vaclav-home-portrait');
   const portraitUrl = getCmsValue('home.vaclavPortraitImg');
-  if (homePortrait && typeof portraitUrl === 'string' && portraitUrl.trim() !== '') {
-    const caption = getCmsValue('home.vaclavPortraitCaption') || '';
-    homePortrait.innerHTML = `
-      <img src="${portraitUrl}" alt="${caption}" style="width:100%; height:100%; max-height:420px; object-fit:cover; border-radius:6px;" />
-      ${caption ? `<div class="portrait-placeholder-sub" style="margin-top:0.5rem;">${caption}</div>` : ''}
-    `;
+  const caption = getCmsValue('home.vaclavPortraitCaption') || 'PhMr. Václav Pokorný u klavíru / v příborské lékárně';
+  if (homePortrait) {
+    if (typeof portraitUrl === 'string' && portraitUrl.trim() !== '') {
+      homePortrait.innerHTML = `
+        <img src="${portraitUrl}" alt="${caption}" style="width:100%; height:100%; max-height:420px; object-fit:cover; border-radius:6px;" />
+        ${caption ? `<div class="portrait-placeholder-sub" data-cms="home.vaclavPortraitCaption" style="margin-top:0.5rem;">${caption}</div>` : ''}
+      `;
+    } else {
+      homePortrait.innerHTML = `
+        <div class="portrait-placeholder-icon">
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </div>
+        <div class="portrait-placeholder-title">[ Portrétní fotografie ]</div>
+        <div class="portrait-placeholder-sub" data-cms="home.vaclavPortraitCaption">${caption}</div>
+      `;
+    }
   }
 }
 
 // ==========================================================================
-// Helper: Turn family member names in text into clickable links to rodokmen.html
+// Helper: Turn Markdown links ([url](label) or [label](url)) & Family Member names into clickable links
 // ==========================================================================
+function looksLikeUrl(str) {
+  const s = String(str || '').trim();
+  return /^(https?:\/\/|mailto:|www\.|[a-z0-9-]+\.(cz|com|org|eu|net|info|edu|gov)(\/|$)|\S+\.html\b)/i.test(s);
+}
+
+function normalizeHref(rawUrl) {
+  const s = String(rawUrl || '').trim();
+  if (/^www\./i.test(s)) return 'https://' + s;
+  if (/^[a-z0-9-]+\.(cz|com|org|eu|net|info|edu|gov)(\/|$)/i.test(s) && !/^https?:\/\//i.test(s)) {
+    return 'https://' + s;
+  }
+  return s;
+}
+
 function linkifyFamilyNames(text) {
-  if (!text || !SITE_DATA.personLinks) return text || '';
+  if (!text) return '';
+  let processed = String(text);
 
-  // Flatten and sort all patterns by length descending so longer titles match first
-  const allMatchers = [];
-  SITE_DATA.personLinks.forEach(entry => {
-    entry.patterns.forEach(pattern => {
-      allMatchers.push({ pattern, id: entry.id });
-    });
-  });
-  allMatchers.sort((a, b) => b.pattern.length - a.pattern.length);
+  // If the string already contains generated person-inline-link tags, strip them back to plain text first so we never double-link!
+  if (processed.includes('person-inline-link')) {
+    processed = processed.replace(/<a\b[^>]*class="[^"]*person-inline-link[^"]*"[^>]*>(.*?)<\/a>/gi, '$1');
+  }
 
-  // Use placeholders to avoid nested replacements inside already created <a> tags
   const placeholders = [];
-  let processed = text;
+  const cmsSuffix = (sessionStorage.getItem('pokorny_cms_mode') === '1' || new URLSearchParams(window.location.search).get('cms') === '1')
+    ? '&cms=1'
+    : '';
 
-  allMatchers.forEach(({ pattern, id }) => {
-    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'g');
-    processed = processed.replace(regex, (match) => {
-      const token = `__PERSON_LINK_${placeholders.length}__`;
-      placeholders.push(
-        `<a href="rodokmen.html?person=${id}" class="person-inline-link" title="Zobrazit v rodokmenu: ${match}">${match}</a>`
-      );
-      return token;
-    });
+  // 1. Parse Markdown-style links: supports both [www.e.com](E site) AND [E site](https://www.e.com)
+  processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, partA, partB) => {
+    let urlPart = partB.trim();
+    let labelPart = partA.trim();
+    if (looksLikeUrl(partA) && !looksLikeUrl(partB)) {
+      urlPart = partA.trim();
+      labelPart = partB.trim();
+    }
+    const href = normalizeHref(urlPart);
+    const isExternal = /^https?:\/\//i.test(href);
+    const targetAttr = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
+    const token = `__LINK_TOKEN_${placeholders.length}__`;
+    placeholders.push(`<a href="${href}" class="person-inline-link markdown-inline-link"${targetAttr}>${labelPart}</a>`);
+    return token;
   });
+
+  // 2. Parse Family Member links from SITE_DATA.personLinks
+  if (Array.isArray(SITE_DATA.personLinks)) {
+    const allMatchers = [];
+    SITE_DATA.personLinks.forEach(entry => {
+      if (Array.isArray(entry.patterns)) {
+        entry.patterns.forEach(pattern => {
+          if (pattern && pattern.trim()) {
+            allMatchers.push({ pattern: pattern.trim(), id: entry.id });
+          }
+        });
+      }
+    });
+    allMatchers.sort((a, b) => b.pattern.length - a.pattern.length);
+
+    allMatchers.forEach(({ pattern, id }) => {
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'g');
+      processed = processed.replace(regex, (match) => {
+        const token = `__LINK_TOKEN_${placeholders.length}__`;
+        placeholders.push(
+          `<a href="rodokmen.html?person=${id}${cmsSuffix}" class="person-inline-link" title="Zobrazit v rodokmenu: ${match}">${match}</a>`
+        );
+        return token;
+      });
+    });
+  }
 
   placeholders.forEach((html, idx) => {
-    processed = processed.replace(`__PERSON_LINK_${idx}__`, html);
+    processed = processed.replace(`__LINK_TOKEN_${idx}__`, html);
   });
 
   return processed;
 }
+window.linkifyFamilyNames = linkifyFamilyNames;
+
+// ==========================================================================
+// 0.5. Main Page: Město Příbor Section (Title, 2 Sentences + Více Overlay, Picture Menu)
+// ==========================================================================
+function initPriborSection() {
+  const priborPhotosEl = document.getElementById('pribor-right-photos');
+  if (priborPhotosEl) {
+    const photosList = Array.isArray(SITE_DATA.priborPhotos) ? SITE_DATA.priborPhotos : [];
+    priborPhotosEl.innerHTML = photosList.map(item => renderFramedPhotoCard(item, true, 'pribor')).join('');
+    wireFramedPhotoCards(priborPhotosEl, photosList);
+  }
+
+  const moreBtn = document.getElementById('btn-pribor-more');
+  if (moreBtn && !moreBtn.dataset.wiredPribor) {
+    moreBtn.dataset.wiredPribor = '1';
+    moreBtn.addEventListener('click', () => {
+      openPriborMoreOverlay();
+    });
+  }
+}
+
+function openPriborMoreOverlay() {
+  const homeText = SITE_DATA.pageText?.home || {};
+  const allPriborPhotos = [];
+  if (Array.isArray(SITE_DATA.priborPhotos)) {
+    SITE_DATA.priborPhotos.forEach(item => {
+      if (Array.isArray(item.photos)) {
+        item.photos.forEach(p => allPriborPhotos.push(p));
+      }
+    });
+  }
+  const entry = {
+    id: 'pribor-main-modal',
+    year: homeText.priborModalSubtitle || '1694 – 20. století • Příbor',
+    title: homeText.priborTitle || 'Město Příbor a působení rodu Pokorných',
+    person: 'Historie města, piaristická kolej a lékárna č. p. 54',
+    longDescription: homeText.priborLongDescription || homeText.priborLeadParagraph || '',
+    photos: allPriborPhotos.length > 0
+      ? allPriborPhotos
+      : [{ url: null, caption: 'Historické náměstí v Příboře s lékárnou č. p. 54' }]
+  };
+  openTimelineOverlay(entry, 'year');
+}
+window.openPriborMoreOverlay = openPriborMoreOverlay;
 
 // ==========================================================================
 // 1. Main Page: Compact Historie lékárny Timeline (Title + Names + Button to Subpage)
@@ -172,26 +288,20 @@ function initMainPageTimeline() {
   const compactContainer = document.getElementById('pharmacy-timeline-compact');
   if (!compactContainer) return;
 
-  compactContainer.innerHTML = SITE_DATA.pharmacyTimeline.map(item => `
-    <div class="timeline-item timeline-item-compact">
+  compactContainer.innerHTML = (SITE_DATA.pharmacyTimeline || []).map(item => `
+    <div class="timeline-item timeline-item-compact" data-timeline-type="pharmacy" data-id="${item.id}">
       <div class="timeline-compact-info">
-        <div class="timeline-year">${item.year}</div>
-        <h3 class="timeline-title">${item.title}</h3>
+        <div class="timeline-year">${linkifyFamilyNames(item.year)}</div>
+        <h3 class="timeline-title">${linkifyFamilyNames(item.title)}</h3>
         <div class="timeline-person">${linkifyFamilyNames(item.person)}</div>
       </div>
       <div class="timeline-compact-action">
-        <a href="historie-lekarny.html#${item.id}" class="btn btn-primary btn-sm">
+        <a href="historie-lekarny.html#${item.id}" class="btn btn-primary btn-sm" data-timeline-id="${item.id}">
           Více →
         </a>
       </div>
     </div>
   `).join('');
-
-  // Linkify names in main page Václav Pokorný short description as well
-  const vaclavSentence = document.getElementById('vaclav-main-sentence');
-  if (vaclavSentence) {
-    vaclavSentence.innerHTML = linkifyFamilyNames(vaclavSentence.innerHTML);
-  }
 }
 
 // ==========================================================================
@@ -200,11 +310,11 @@ function initMainPageTimeline() {
 function initFullPharmacyPage() {
   const chainContainer = document.getElementById('pharmacists-chain');
   if (chainContainer && SITE_DATA.familyTree?.pharmacistsLine) {
-    chainContainer.innerHTML = SITE_DATA.familyTree.pharmacistsLine.map(node => `
-      <a href="rodokmen.html?person=${node.id}" class="lineage-node lineage-node-link" title="Zobrazit ${node.name} v rodokmenu">
+    chainContainer.innerHTML = SITE_DATA.familyTree.pharmacistsLine.map((node, idx) => `
+      <a href="rodokmen.html?person=${node.id}" class="lineage-node lineage-node-link" data-lineage-idx="${idx}" data-person-id="${node.id}" title="Zobrazit ${node.name} v rodokmenu">
         <div class="lineage-gen">${node.gen}. generace</div>
         <div class="lineage-name">${node.name} ↗</div>
-        <div class="lineage-role">${node.role}</div>
+        <div class="lineage-role">${linkifyFamilyNames(node.role)}</div>
       </a>
     `).join('');
   }
@@ -214,27 +324,22 @@ function initFullPharmacyPage() {
     const b = SITE_DATA.familyTree.brozikConnection;
     brozikBox.innerHTML = `
       <h3 style="margin-bottom:0.35rem;">
-        ${b.title} – <a href="rodokmen.html?person=${b.personId}" class="person-inline-link">${b.spouse}</a>
+        ${linkifyFamilyNames(b.title)} – <a href="rodokmen.html?person=${b.personId}" class="person-inline-link">${b.spouse}</a>
       </h3>
       <p>${linkifyFamilyNames(b.details)}</p>
     `;
   }
 
-  const heroDesc = document.getElementById('lekarna-hero-desc');
-  if (heroDesc) {
-    heroDesc.innerHTML = linkifyFamilyNames(heroDesc.innerHTML);
-  }
-
   const fullTimeline = document.getElementById('pharmacy-timeline-full');
   if (!fullTimeline) return;
 
-  fullTimeline.innerHTML = SITE_DATA.pharmacyTimeline.map(item => `
+  fullTimeline.innerHTML = (SITE_DATA.pharmacyTimeline || []).map(item => `
     <article id="${item.id}" class="timeline-item timeline-item-interactive" data-timeline-type="pharmacy" data-id="${item.id}" tabindex="0" role="button" aria-label="Zobrazit podrobnosti: ${item.title}">
       <div class="timeline-item-header">
         <div>
-          <div class="timeline-year">${item.year}</div>
+          <div class="timeline-year">${linkifyFamilyNames(item.year)}</div>
           <div class="timeline-person">${linkifyFamilyNames(item.person)}</div>
-          <h3 class="timeline-title">${item.title}</h3>
+          <h3 class="timeline-title">${linkifyFamilyNames(item.title)}</h3>
         </div>
         <button type="button" class="btn btn-outline-dark btn-sm timeline-more-btn" data-id="${item.id}">
           Více ↗
@@ -251,38 +356,31 @@ function initFullPharmacyPage() {
 // 3. PhMr. Václav Pokorný Subpage: Bio + Clickable Photos + Full Clickable Timeline
 // ==========================================================================
 function initFullVaclavPage() {
-  const bioContainer = document.getElementById('vaclav-long-bio');
-  if (bioContainer) {
-    bioContainer.querySelectorAll('p').forEach(p => {
-      p.innerHTML = linkifyFamilyNames(p.innerHTML);
-    });
-  }
+  // Note: #vaclav-long-bio paragraphs already have [data-cms-linkify] and are linkified cleanly in applyPageTextFromCms()!
 
-  // Render the 2 bigger stacked clickable photos on the right of the main text
   const topRightPhotosEl = document.getElementById('vaclav-top-right-photos');
   if (topRightPhotosEl && Array.isArray(SITE_DATA.vaclavInteractivePhotos)) {
     const heroPhotos = SITE_DATA.vaclavInteractivePhotos.filter(p => p.placement === 'top-right');
-    topRightPhotosEl.innerHTML = heroPhotos.map(item => renderVaclavPhotoFrame(item, true)).join('');
-    wireVaclavPhotoFrames(topRightPhotosEl);
+    topRightPhotosEl.innerHTML = heroPhotos.map(item => renderFramedPhotoCard(item, true, 'vaclav')).join('');
+    wireFramedPhotoCards(topRightPhotosEl, SITE_DATA.vaclavInteractivePhotos);
   }
 
-  // Render the straight bordered clickable photo frames on the left side along the timeline
   const sidePhotosEl = document.getElementById('vaclav-timeline-left-photos');
   if (sidePhotosEl && Array.isArray(SITE_DATA.vaclavInteractivePhotos)) {
     const sidePhotos = SITE_DATA.vaclavInteractivePhotos.filter(p => p.placement === 'timeline-left');
-    sidePhotosEl.innerHTML = sidePhotos.map(item => renderVaclavPhotoFrame(item, false)).join('');
-    wireVaclavPhotoFrames(sidePhotosEl);
+    sidePhotosEl.innerHTML = sidePhotos.map(item => renderFramedPhotoCard(item, false, 'vaclav')).join('');
+    wireFramedPhotoCards(sidePhotosEl, SITE_DATA.vaclavInteractivePhotos);
   }
 
   const vaclavTimeline = document.getElementById('vaclav-timeline-full');
   if (!vaclavTimeline) return;
 
-  vaclavTimeline.innerHTML = SITE_DATA.vaclavTimeline.map(item => `
+  vaclavTimeline.innerHTML = (SITE_DATA.vaclavTimeline || []).map(item => `
     <article id="${item.id}" class="timeline-item timeline-item-interactive" data-timeline-type="vaclav" data-id="${item.id}" tabindex="0" role="button" aria-label="Zobrazit podrobnosti: ${item.title}">
       <div class="timeline-item-header">
         <div>
-          <div class="timeline-year">${item.period}</div>
-          <h3 class="timeline-title">${item.title}</h3>
+          <div class="timeline-year">${linkifyFamilyNames(item.period)}</div>
+          <h3 class="timeline-title">${linkifyFamilyNames(item.title)}</h3>
         </div>
         <button type="button" class="btn btn-outline-dark btn-sm timeline-more-btn" data-id="${item.id}">
           Více ↗
@@ -295,7 +393,7 @@ function initFullVaclavPage() {
   wireInteractiveTimeline(vaclavTimeline, SITE_DATA.vaclavTimeline, 'period');
 }
 
-function renderVaclavPhotoFrame(item, isLarge) {
+function renderFramedPhotoCard(item, isLarge, groupType = 'vaclav') {
   const modeBadge = item.mode === 'split'
     ? '🖼️ Fotografie + popis ↗'
     : `🖼️ Fotogalerie (${item.photos?.length || 1}) ↗`;
@@ -306,30 +404,32 @@ function renderVaclavPhotoFrame(item, isLarge) {
     : '';
 
   return `
-    <figure class="vaclav-framed-photo ${isLarge ? 'vaclav-framed-large' : 'vaclav-framed-side'}" data-photo-id="${item.id}" tabindex="0" role="button" aria-label="Zvětšit fotografii: ${item.title}">
+    <figure class="vaclav-framed-photo ${isLarge ? 'vaclav-framed-large' : 'vaclav-framed-side'}" data-photo-group="${groupType}" data-photo-id="${item.id}" tabindex="0" role="button" aria-label="Zvětšit fotografii: ${item.title}">
       <div class="vaclav-framed-inner" ${innerStyle}>
         <span class="vaclav-framed-badge">${modeBadge}</span>
         ${coverUrl ? '' : '<div class="vaclav-framed-icon">🖼️</div>'}
-        <div class="vaclav-framed-title">${item.title}</div>
-        <div class="vaclav-framed-date">${item.date}</div>
+        <div class="vaclav-framed-title">${linkifyFamilyNames(item.title)}</div>
+        <div class="vaclav-framed-date">${linkifyFamilyNames(item.date || '')}</div>
       </div>
-      <figcaption class="vaclav-framed-caption">${item.caption}</figcaption>
+      <figcaption class="vaclav-framed-caption">${linkifyFamilyNames(item.caption || '')}</figcaption>
     </figure>
   `;
 }
 
-function wireVaclavPhotoFrames(container) {
+function wireFramedPhotoCards(container, sourceList) {
   container.querySelectorAll('.vaclav-framed-photo').forEach(frame => {
-    frame.addEventListener('click', () => {
+    frame.addEventListener('click', (e) => {
+      if (e.target.closest('.person-inline-link')) return;
       const id = frame.getAttribute('data-photo-id');
-      const item = SITE_DATA.vaclavInteractivePhotos?.find(p => p.id === id);
+      const item = sourceList?.find(p => p.id === id);
       if (item) openVaclavPhotoOverlay(item);
     });
     frame.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target.closest('.person-inline-link')) return;
         e.preventDefault();
         const id = frame.getAttribute('data-photo-id');
-        const item = SITE_DATA.vaclavInteractivePhotos?.find(p => p.id === id);
+        const item = sourceList?.find(p => p.id === id);
         if (item) openVaclavPhotoOverlay(item);
       }
     });
@@ -348,7 +448,6 @@ function openVaclavPhotoOverlay(item) {
     : [{ url: null, caption: item.caption || item.title }];
 
   if (item.mode === 'carousel') {
-    // Version 2: Just the photo carousel and small caption (full-width single pane)
     modalWindow.classList.add('modal-single-pane');
     leftPane.className = 'modal-left-pane modal-pane-media';
     leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, item.title);
@@ -356,7 +455,6 @@ function openVaclavPhotoOverlay(item) {
     rightPane.className = 'modal-right-pane modal-pane-hidden';
     rightPane.innerHTML = '';
   } else {
-    // Version 1: Photo carousel on the left + text panel next to it on the right (like archive section)
     modalWindow.classList.remove('modal-single-pane');
     leftPane.className = 'modal-left-pane modal-pane-media';
     leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, item.title);
@@ -365,8 +463,8 @@ function openVaclavPhotoOverlay(item) {
     rightPane.className = 'modal-right-pane modal-pane-details';
     rightPane.innerHTML = `
       <div class="modal-details-content">
-        <div class="archive-meta">${item.date} | ${linkifyFamilyNames(item.author || '')}</div>
-        <h2 class="modal-main-title">${item.title}</h2>
+        <div class="archive-meta">${linkifyFamilyNames(item.date || '')} | ${linkifyFamilyNames(item.author || '')}</div>
+        <h2 class="modal-main-title">${linkifyFamilyNames(item.title)}</h2>
         <p class="modal-desc-text">${linkifyFamilyNames(item.description || item.caption)}</p>
       </div>
       <div class="modal-footer-bar">
@@ -379,11 +477,11 @@ function openVaclavPhotoOverlay(item) {
   backdrop.classList.add('open');
   backdrop.setAttribute('aria-hidden', 'false');
 }
+window.openVaclavPhotoOverlay = openVaclavPhotoOverlay;
 
 function wireInteractiveTimeline(container, dataArray, timeKey) {
   container.querySelectorAll('.timeline-item-interactive').forEach(card => {
     card.addEventListener('click', (e) => {
-      // Allow clicking inline person links without triggering the modal
       if (e.target.closest('.person-inline-link')) return;
       const id = card.getAttribute('data-id');
       const entry = dataArray.find(x => x.id === id);
@@ -416,15 +514,15 @@ function initAudioPlayerPanel() {
   const audioEl = document.getElementById('main-audio');
   if (!trackListEl || !playBtn || !audioEl) return;
 
-  const showcaseTracks = SITE_DATA.audioTracks.slice(0, 3);
+  const showcaseTracks = (SITE_DATA.audioTracks || []).slice(0, 3);
 
   trackListEl.innerHTML = showcaseTracks.map((track, idx) => `
-    <div class="track-item ${idx === 0 ? 'active' : ''}" data-idx="${idx}">
+    <div class="track-item ${idx === 0 ? 'active' : ''}" data-idx="${idx}" data-track-id="${track.id}">
       <div class="track-item-left">
         <span class="track-item-num">${idx + 1}.</span>
         <div>
-          <div class="track-info-title">${track.title}</div>
-          <div class="track-info-sub">${track.subtitle} (${track.year})</div>
+          <div class="track-info-title">${linkifyFamilyNames(track.title)}</div>
+          <div class="track-info-sub">${linkifyFamilyNames(track.subtitle)} (${linkifyFamilyNames(track.year)})</div>
         </div>
       </div>
       <span class="track-duration">${track.duration}</span>
@@ -432,7 +530,8 @@ function initAudioPlayerPanel() {
   `).join('');
 
   trackListEl.querySelectorAll('.track-item').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.person-inline-link')) return;
       const idx = parseInt(el.getAttribute('data-idx'), 10);
       selectShowcaseTrack(idx, true);
     });
@@ -440,27 +539,30 @@ function initAudioPlayerPanel() {
 
   selectShowcaseTrack(0, false);
 
-  playBtn.addEventListener('click', () => {
-    if (audioEl.paused) {
-      audioEl.play().catch(() => {});
-    } else {
-      audioEl.pause();
-    }
-  });
+  if (!playBtn.dataset.wiredAudio) {
+    playBtn.dataset.wiredAudio = '1';
+    playBtn.addEventListener('click', () => {
+      if (audioEl.paused) {
+        audioEl.play().catch(() => {});
+      } else {
+        audioEl.pause();
+      }
+    });
 
-  audioEl.addEventListener('play', () => {
-    isPlaying = true;
-    playBtn.textContent = '❚❚';
-  });
+    audioEl.addEventListener('play', () => {
+      isPlaying = true;
+      playBtn.textContent = '❚❚';
+    });
 
-  audioEl.addEventListener('pause', () => {
-    isPlaying = false;
-    playBtn.textContent = '▶';
-  });
+    audioEl.addEventListener('pause', () => {
+      isPlaying = false;
+      playBtn.textContent = '▶';
+    });
+  }
 }
 
 function selectShowcaseTrack(index, autoPlay = false) {
-  const showcaseTracks = SITE_DATA.audioTracks.slice(0, 3);
+  const showcaseTracks = (SITE_DATA.audioTracks || []).slice(0, 3);
   const track = showcaseTracks[index];
   if (!track) return;
 
@@ -488,6 +590,7 @@ function selectShowcaseTrack(index, autoPlay = false) {
     }
   }
 }
+window.selectShowcaseTrack = selectShowcaseTrack;
 
 // ==========================================================================
 // 5. Google Photos Collage-Style Media Gallery & Category Filters
@@ -497,13 +600,20 @@ function initMediaGallery() {
   if (!grid) return;
 
   const pageScope = grid.getAttribute('data-gallery-page') || 'main';
-  renderCollageGallery('all', pageScope);
+  const activeFilterBtn = document.querySelector('.filter-bar .filter-btn.active');
+  const currentFilter = activeFilterBtn ? activeFilterBtn.getAttribute('data-filter') : 'all';
+  renderCollageGallery(currentFilter, pageScope);
 
   document.querySelectorAll('.filter-bar .filter-btn').forEach(btn => {
+    if (btn.dataset.wiredFilter) return;
+    btn.dataset.wiredFilter = '1';
     btn.addEventListener('click', () => {
       document.querySelectorAll('.filter-bar .filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       renderCollageGallery(btn.getAttribute('data-filter'), pageScope);
+      if (typeof window.onCmsAfterPageRender === 'function') {
+        window.onCmsAfterPageRender();
+      }
     });
   });
 }
@@ -522,7 +632,7 @@ function renderCollageGallery(filterCategory, pageScope) {
   const grid = document.getElementById('archive-grid');
   if (!grid) return;
 
-  const scopedItems = SITE_DATA.archiveItems.filter(item =>
+  const scopedItems = (SITE_DATA.archiveItems || []).filter(item =>
     !item.pages || item.pages.includes(pageScope)
   );
 
@@ -558,21 +668,23 @@ function renderCollageGallery(filterCategory, pageScope) {
           </div>
         </div>
         <div class="collage-tile-overlay">
-          <div class="collage-meta">${item.date}</div>
-          <h3 class="collage-title">${item.title}</h3>
+          <div class="collage-meta">${linkifyFamilyNames(item.date)}</div>
+          <h3 class="collage-title">${linkifyFamilyNames(item.title)}</h3>
         </div>
       </article>
     `;
   }).join('');
 
   grid.querySelectorAll('.collage-tile').forEach(tile => {
-    tile.addEventListener('click', () => {
+    tile.addEventListener('click', (e) => {
+      if (e.target.closest('.person-inline-link')) return;
       const id = tile.getAttribute('data-id');
       const item = SITE_DATA.archiveItems.find(i => i.id === id);
       if (item) openMediaGalleryOverlay(item);
     });
     tile.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target.closest('.person-inline-link')) return;
         e.preventDefault();
         const id = tile.getAttribute('data-id');
         const item = SITE_DATA.archiveItems.find(i => i.id === id);
@@ -610,13 +722,12 @@ function initUniversalModal() {
 function closeUniversalModal() {
   const backdrop = document.getElementById('universal-modal');
   if (!backdrop) return;
-  // Stop any audio playing inside the modal
   backdrop.querySelectorAll('audio').forEach(a => a.pause());
   backdrop.classList.remove('open');
   backdrop.setAttribute('aria-hidden', 'true');
 }
+window.closeUniversalModal = closeUniversalModal;
 
-// A) Timeline Overlay: Photo Carousel on the LEFT, Long Description on the RIGHT
 function openTimelineOverlay(entry, timeKey = 'year') {
   const backdrop = document.getElementById('universal-modal');
   const modalWindow = backdrop?.querySelector('.modal-window');
@@ -635,7 +746,6 @@ function openTimelineOverlay(entry, timeKey = 'year') {
     ? `<div class="modal-person-subtitle">${linkifyFamilyNames(entry.person)}</div>`
     : '';
 
-  // Left pane: Space for photos with Samsung-style carousel
   const photos = entry.photos && entry.photos.length > 0
     ? entry.photos
     : [{ url: null, caption: entry.title, detail: 'Fotografická příloha k období' }];
@@ -644,12 +754,11 @@ function openTimelineOverlay(entry, timeKey = 'year') {
   leftPane.innerHTML = buildSamsungPhotoCarouselHtml(photos, entry.title);
   wireSamsungCarousel(leftPane, photos);
 
-  // Right pane: Long description
   rightPane.className = 'modal-right-pane modal-pane-text';
   rightPane.innerHTML = `
     <div class="modal-text-scroll">
-      <div class="archive-meta">${entry[timeKey] || ''}</div>
-      <h2 class="modal-main-title">${entry.title}</h2>
+      <div class="archive-meta">${linkifyFamilyNames(entry[timeKey] || '')}</div>
+      <h2 class="modal-main-title">${linkifyFamilyNames(entry.title)}</h2>
       ${personLine}
       <div class="modal-long-body">
         ${paragraphs}
@@ -665,11 +774,8 @@ function openTimelineOverlay(entry, timeKey = 'year') {
   backdrop.classList.add('open');
   backdrop.setAttribute('aria-hidden', 'false');
 }
+window.openTimelineOverlay = openTimelineOverlay;
 
-// B) Media Gallery Overlay:
-// - PDF/Document/Sheet Music: PDF preview on the LEFT, description on the RIGHT
-// - Music/Audio: Artwork/Waveform on the LEFT, playable audio + description on the RIGHT
-// - Pictures: Main photo + Samsung gallery thumbnail strip below on the LEFT, description on the RIGHT
 function openMediaGalleryOverlay(item) {
   const backdrop = document.getElementById('universal-modal');
   const modalWindow = backdrop?.querySelector('.modal-window');
@@ -708,10 +814,10 @@ function openMediaGalleryOverlay(item) {
           </div>
           <div class="pdf-page-canvas" id="pdf-page-canvas">
             <div class="pdf-paper-sheet">
-              <div class="pdf-sheet-header">${item.title}</div>
-              <div class="pdf-sheet-meta">${item.author} • ${item.date}</div>
+              <div class="pdf-sheet-header">${linkifyFamilyNames(item.title)}</div>
+              <div class="pdf-sheet-meta">${linkifyFamilyNames(item.author)} • ${linkifyFamilyNames(item.date)}</div>
               <div class="pdf-sheet-divider"></div>
-              <p class="pdf-sheet-excerpt" id="pdf-sheet-excerpt">${item.transcription || item.description}</p>
+              <p class="pdf-sheet-excerpt" id="pdf-sheet-excerpt">${linkifyFamilyNames(item.transcription || item.description)}</p>
               <div class="pdf-sheet-placeholder-note">
                 [ Interaktivní náhled PDF dokumentu – strana <span id="pdf-sheet-num">1</span> z ${totalPages} ]
               </div>
@@ -741,12 +847,11 @@ function openMediaGalleryOverlay(item) {
           <div class="vinyl-label">♪</div>
         </div>
         <div class="audio-visual-caption">Zvukový archiv PhMr. Václava Pokorného</div>
-        <div class="audio-visual-sub">${item.author} (${item.date})</div>
+        <div class="audio-visual-sub">${linkifyFamilyNames(item.author)} (${linkifyFamilyNames(item.date)})</div>
       </div>
     `;
     rightPane.innerHTML = buildMediaDetailsRightHtml(item, true);
   } else {
-    // Photo item with Samsung Gallery style preview carousel below the main photo
     const photos = item.photos && item.photos.length > 0
       ? item.photos
       : [{ url: null, caption: item.title }];
@@ -760,6 +865,7 @@ function openMediaGalleryOverlay(item) {
   backdrop.classList.add('open');
   backdrop.setAttribute('aria-hidden', 'false');
 }
+window.openMediaGalleryOverlay = openMediaGalleryOverlay;
 
 function buildMediaDetailsRightHtml(item, includePlayableAudio) {
   const audioPlayerBlock = includePlayableAudio
@@ -771,11 +877,21 @@ function buildMediaDetailsRightHtml(item, includePlayableAudio) {
     `
     : '';
 
+  const transcriptionBlock = item.transcription
+    ? `
+      <div class="transcription-box" style="margin-top:1rem;">
+        <strong>Přepis / Poznámka:</strong>
+        <p style="margin-top:0.25rem;">${linkifyFamilyNames(item.transcription)}</p>
+      </div>
+    `
+    : '';
+
   return `
     <div class="modal-details-content">
-      <div class="archive-meta">${item.category} • ${item.date} | ${linkifyFamilyNames(item.author)}</div>
-      <h2 class="modal-main-title">${item.title}</h2>
+      <div class="archive-meta">${item.category} • ${linkifyFamilyNames(item.date)} | ${linkifyFamilyNames(item.author)}</div>
+      <h2 class="modal-main-title">${linkifyFamilyNames(item.title)}</h2>
       <p class="modal-desc-text">${linkifyFamilyNames(item.description)}</p>
+      ${transcriptionBlock}
       ${audioPlayerBlock}
     </div>
     <div class="modal-footer-bar">
@@ -784,7 +900,6 @@ function buildMediaDetailsRightHtml(item, includePlayableAudio) {
   `;
 }
 
-// Shared Samsung Gallery Style Photo Viewer (Main photo on top + filmstrip thumbnail bar below)
 function buildSamsungPhotoCarouselHtml(photos, fallbackTitle) {
   const first = photos[0] || { url: null, caption: fallbackTitle };
   return `
@@ -797,8 +912,8 @@ function buildSamsungPhotoCarouselHtml(photos, fallbackTitle) {
         <button type="button" class="samsung-stage-nav next" title="Další snímek">›</button>
       </div>
       <div class="samsung-caption-bar" id="samsung-caption-bar">
-        <div class="samsung-caption-title">${first.caption || fallbackTitle}</div>
-        ${first.detail ? `<div class="samsung-caption-sub">${first.detail}</div>` : ''}
+        <div class="samsung-caption-title">${linkifyFamilyNames(first.caption || fallbackTitle)}</div>
+        ${first.detail ? `<div class="samsung-caption-sub">${linkifyFamilyNames(first.detail)}</div>` : ''}
       </div>
       <div class="samsung-filmstrip" id="samsung-filmstrip" role="tablist" aria-label="Náhledy fotografií">
         ${photos.map((p, idx) => `
@@ -822,7 +937,7 @@ function renderPhotoSlideContent(photo, index, total) {
     <div class="samsung-placeholder-art">
       <div class="samsung-placeholder-badge">Fotografie ${index + 1} z ${total}</div>
       <div class="samsung-placeholder-icon">🖼️</div>
-      <div class="samsung-placeholder-caption">${photo.caption || 'Archivní snímek'}</div>
+      <div class="samsung-placeholder-caption">${linkifyFamilyNames(photo.caption || 'Archivní snímek')}</div>
     </div>
   `;
 }
@@ -845,8 +960,8 @@ function wireSamsungCarousel(container, photos) {
     }
     if (captionBar) {
       captionBar.innerHTML = `
-        <div class="samsung-caption-title">${current.caption || ''}</div>
-        ${current.detail ? `<div class="samsung-caption-sub">${current.detail}</div>` : ''}
+        <div class="samsung-caption-title">${linkifyFamilyNames(current.caption || '')}</div>
+        ${current.detail ? `<div class="samsung-caption-sub">${linkifyFamilyNames(current.detail)}</div>` : ''}
       `;
     }
     thumbs.forEach((t, idx) => {
@@ -865,9 +980,6 @@ function wireSamsungCarousel(container, photos) {
   nextBtn?.addEventListener('click', () => updateSlide(activeIndex + 1));
 }
 
-// ==========================================================================
-// 7. Deep-link Hash Support (e.g. historie-lekarny.html#lekarna-1756 highlights & scrolls)
-// ==========================================================================
 function handleDeepLinkHash() {
   const hash = window.location.hash ? window.location.hash.slice(1) : '';
   if (!hash) return;
