@@ -1,6 +1,6 @@
 services:
   pokorny-web:
-    build: https://github.com/snowfalllll/PokornyWeb.git#main
+    image: ghcr.io/snowfalllll/pokornyweb:latest
     container_name: pokorny-web
     restart: unless-stopped
     environment:
