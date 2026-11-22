@@ -765,6 +765,16 @@ const server = http.createServer(async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     let pathname = decodeURIComponent(parsedUrl.pathname || '/');
 
+    // Allow serving either at root (/) or under a subpath (/pokornyweb/...)
+    if (pathname === '/pokornyweb') {
+      res.writeHead(301, { Location: '/pokornyweb/' });
+      res.end();
+      return;
+    }
+    if (pathname.startsWith('/pokornyweb/')) {
+      pathname = pathname.slice('/pokornyweb'.length) || '/';
+    }
+
     if (pathname === '/api.php') {
       return await handleApiRequest(req, res, parsedUrl);
     }
