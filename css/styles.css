@@ -1790,11 +1790,12 @@ h1, h2, h3, h4 {
   text-align: center;
 }
 
-/* Hierarchical Tree Connector Structure */
+/* Graph-Based Family Tree Canvas Structure */
 .genealogy-tree {
-  display: inline-block;
-  text-align: center;
+  display: block;
   position: relative;
+  min-width: 800px;
+  min-height: 500px;
 }
 
 .tree-connectors-svg {
@@ -1807,55 +1808,16 @@ h1, h2, h3, h4 {
   overflow: visible;
 }
 
-.org-ul {
-  padding-top: 24px;
+.tree-nodes-layer {
   position: relative;
-  display: inline-flex;
-  justify-content: center;
-  align-items: flex-start;
-  list-style: none;
-}
-
-.org-ul.root-ul {
-  padding-top: 0;
-}
-
-.org-li {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-  padding: 24px 10px 0 10px;
-}
-
-.org-ul.root-ul > .org-li {
-  padding-top: 0;
-}
-
-.org-li:only-child {
-  padding-top: 20px;
-}
-
-.org-ul.root-ul > .org-li:only-child {
-  padding-top: 0;
-}
-
-.tree-couple-group {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 0.45rem;
-  position: relative;
-  z-index: 2;
-}
-
-.tree-single-group {
-  display: inline-flex;
-  position: relative;
+  width: 100%;
+  height: 100%;
   z-index: 2;
 }
 
 .tree-couple-ring {
-  align-self: center;
+  position: absolute;
+  z-index: 5;
   background: #f2ece1;
   border: 1.5px solid var(--accent-gold);
   color: var(--accent-gold);
@@ -1867,11 +1829,11 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
-  flex-shrink: 0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+  user-select: none;
 }
 
-/* Hide CMS Flowchart Connector Ports & Detached Tray on Public View */
+/* Hide CMS Flowchart Connector Ports on Public View */
 .cms-tree-port,
 .cms-flowchart-svg,
 .tree-detached-tray {
@@ -1886,10 +1848,11 @@ h1, h2, h3, h4 {
   border-radius: 5px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
   width: 280px;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.18s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
   overflow: visible;
   text-align: left;
-  position: relative;
+  position: absolute;
+  z-index: 3;
 }
 
 .tree-person-card.branch-pharmacist {

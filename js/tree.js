@@ -162,123 +162,586 @@ function linkifyTreeText(text, currentPersonId = null) {
 }
 window.linkifyTreeText = linkifyTreeText;
 
-function sanitizeTreeStructure() {
-  if (!SITE_DATA.familyTree || !SITE_DATA.familyTree.treeRoot) return;
-  if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
-    SITE_DATA.familyTree.detachedNodes = [];
+// ==========================================================================
+// Graph-Based Family Tree Model (Nodes + Links on a Unified Canvas)
+// Supports multiple ancestor lineages (e.g. parents for both partners in a couple),
+// standalone/one-off cards that keep their position, and manual generation labels.
+// ==========================================================================
+const TREE_CARD_W = 280;
+const TREE_CARD_H = 112;
+const TREE_COUPLE_GAP = 44;
+const TREE_SIBLING_GAP = 36;
+const TREE_ROW_STEP_Y = 175;
+const TREE_PAD_X = 80;
+const TREE_PAD_Y = 70;
+
+function ensureFamilyGraphModel() {
+  if (!SITE_DATA.familyTree) {
+    SITE_DATA.familyTree = { nodes: [] };
   }
 
-  const rescuedNodes = [];
-  const mainTreeIds = new Set();
+  // Migrate legacy nested treeRoot (+ detachedNodes) into flat graph nodes[] on first load
+  if (!Array.isArray(SITE_DATA.familyTree.nodes) || SITE_DATA.familyTree.nodes.length === 0) {
+    const migrated = [];
+    const seen = new Set();
 
-  function cleanNode(node, isMainTree) {
-    if (!node || typeof node !== 'object') return;
-    delete node._parentId;
-    delete node._isSpouseOf;
-    if (isMainTree && node.id) mainTreeIds.add(node.id);
+    function extractNodeCopy(raw, parentId, spouseId) {
+      return {
+        id: raw.id,
+        gen: raw.gen || 1,
+        name: raw.name || 'Člen rodu',
+        role: raw.role || '',
+        branch: raw.branch || 'family',
+        birthDate: raw.birthDate || '',
+        deathDate: raw.deathDate || '—',
+        photo: raw.photo || null,
+        photoCaption: raw.photoCaption || raw.name || '',
+        photos: Array.isArray(raw.photos) ? JSON.parse(JSON.stringify(raw.photos)) : [{ url: raw.photo || null, caption: raw.name || '' }],
+        description: raw.description || '',
+        parentId: parentId || null,
+        spouseId: spouseId || null,
+        x: Number.isFinite(raw.x) ? raw.x : null,
+        y: Number.isFinite(raw.y) ? raw.y : null
+      };
+    }
 
-    if (node.spouse && typeof node.spouse === 'object') {
-      delete node.spouse._parentId;
-      delete node.spouse._isSpouseOf;
-      if (isMainTree && node.spouse.id) mainTreeIds.add(node.spouse.id);
+    function walkLegacy(node, incomingParentId) {
+      if (!node || !node.id || seen.has(node.id)) return;
+      seen.add(node.id);
 
-      // Rescue any accidentally nested spouse.spouse from earlier linking bugs
-      if (node.spouse.spouse) {
-        const nestedSpouse = node.spouse.spouse;
-        delete node.spouse.spouse;
-        rescuedNodes.push(nestedSpouse);
+      const hasSpouse = node.spouse && typeof node.spouse === 'object' && node.spouse.id && !seen.has(node.spouse.id);
+      const spouseId = hasSpouse ? node.spouse.id : null;
+      const parentPointsToSpouse = hasSpouse && node.parentTargetId === node.spouse.id;
+
+      migrated.push(extractNodeCopy(
+        node,
+        parentPointsToSpouse ? null : incomingParentId,
+        spouseId
+      ));
+
+      if (hasSpouse) {
+        seen.add(node.spouse.id);
+        migrated.push(extractNodeCopy(
+          node.spouse,
+          parentPointsToSpouse ? incomingParentId : null,
+          node.id
+        ));
       }
 
-      // Rescue any children accidentally placed on node.spouse instead of node
-      if (Array.isArray(node.spouse.children) && node.spouse.children.length > 0) {
-        if (!Array.isArray(node.children)) node.children = [];
-        node.spouse.children.forEach(ch => {
-          if (!node.children.some(existing => existing.id === ch.id)) {
-            node.children.push(ch);
+      if (Array.isArray(node.children)) {
+        node.children.forEach(ch => walkLegacy(ch, node.id));
+      }
+    }
+
+    if (SITE_DATA.familyTree.treeRoot) {
+      walkLegacy(SITE_DATA.familyTree.treeRoot, null);
+    }
+    if (Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+      SITE_DATA.familyTree.detachedNodes.forEach(d => walkLegacy(d, null));
+    }
+
+    SITE_DATA.familyTree.nodes = migrated;
+    delete SITE_DATA.familyTree.treeRoot;
+    delete SITE_DATA.familyTree.detachedNodes;
+
+    sanitizeFamilyGraph();
+    organizeFamilyGraphLayout(true);
+    return;
+  }
+
+  delete SITE_DATA.familyTree.treeRoot;
+  delete SITE_DATA.familyTree.detachedNodes;
+  sanitizeFamilyGraph();
+}
+window.ensureFamilyGraphModel = ensureFamilyGraphModel;
+
+function sanitizeFamilyGraph() {
+  if (!SITE_DATA.familyTree || !Array.isArray(SITE_DATA.familyTree.nodes)) return;
+
+  const seenIds = new Set();
+  const cleanList = [];
+  SITE_DATA.familyTree.nodes.forEach(n => {
+    if (!n || !n.id || seenIds.has(n.id)) return;
+    seenIds.add(n.id);
+    delete n._parentId;
+    delete n._isSpouseOf;
+    delete n.children;
+    delete n.spouse;
+    delete n.cmsOffsetX;
+    delete n.cmsOffsetY;
+    delete n.parentTargetId;
+    n.parentId = n.parentId || null;
+    n.spouseId = n.spouseId || null;
+    cleanList.push(n);
+  });
+  SITE_DATA.familyTree.nodes = cleanList;
+
+  PERSON_MAP.clear();
+  cleanList.forEach(n => PERSON_MAP.set(n.id, n));
+
+  // Enforce symmetric spouseId
+  cleanList.forEach(n => {
+    if (n.spouseId) {
+      const sp = PERSON_MAP.get(n.spouseId);
+      if (!sp || sp.id === n.id) {
+        n.spouseId = null;
+      } else if (sp.spouseId && sp.spouseId !== n.id) {
+        // Other node is married to someone else; clear stale link
+        n.spouseId = null;
+      } else {
+        sp.spouseId = n.id;
+      }
+    }
+  });
+
+  // Enforce valid parentId without cycles
+  cleanList.forEach(n => {
+    if (n.parentId) {
+      const p = PERSON_MAP.get(n.parentId);
+      if (!p || p.id === n.id || p.id === n.spouseId) {
+        n.parentId = null;
+      }
+    }
+  });
+
+  // Break any accidental parentId cycles
+  cleanList.forEach(n => {
+    const visited = new Set([n.id]);
+    let curr = n;
+    while (curr && curr.parentId) {
+      if (visited.has(curr.parentId)) {
+        curr.parentId = null;
+        break;
+      }
+      visited.add(curr.parentId);
+      curr = PERSON_MAP.get(curr.parentId);
+    }
+  });
+
+  // Ensure every node has valid numeric coordinates
+  let needsInitialPlacement = false;
+  cleanList.forEach((n, idx) => {
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) {
+      n.x = TREE_PAD_X + (idx % 4) * (TREE_CARD_W + TREE_SIBLING_GAP);
+      n.y = TREE_PAD_Y + Math.floor(idx / 4) * TREE_ROW_STEP_Y;
+      needsInitialPlacement = true;
+    }
+  });
+
+  if (needsInitialPlacement && cleanList.length > 1) {
+    organizeFamilyGraphLayout(true);
+  }
+}
+window.sanitizeFamilyGraph = sanitizeFamilyGraph;
+
+function isGraphAncestorOf(candidateAncestorId, targetNodeId) {
+  if (!candidateAncestorId || !targetNodeId) return false;
+  if (candidateAncestorId === targetNodeId) return true;
+
+  // Walk upwards from targetNodeId (following parentId and parent's spouseId)
+  const visited = new Set();
+  const queue = [targetNodeId];
+  while (queue.length > 0) {
+    const currId = queue.shift();
+    if (visited.has(currId)) continue;
+    visited.add(currId);
+    if (currId === candidateAncestorId) return true;
+
+    const curr = PERSON_MAP.get(currId);
+    if (!curr) continue;
+    if (curr.parentId && !visited.has(curr.parentId)) {
+      queue.push(curr.parentId);
+      const pNode = PERSON_MAP.get(curr.parentId);
+      if (pNode?.spouseId && !visited.has(pNode.spouseId)) {
+        queue.push(pNode.spouseId);
+      }
+    }
+  }
+  return false;
+}
+window.isGraphAncestorOf = isGraphAncestorOf;
+
+function getCoupleChildren(personNode) {
+  if (!personNode || !SITE_DATA.familyTree?.nodes) return [];
+  const spouseId = personNode.spouseId || null;
+  return SITE_DATA.familyTree.nodes.filter(n =>
+    n.parentId === personNode.id || (spouseId && n.parentId === spouseId)
+  );
+}
+window.getCoupleChildren = getCoupleChildren;
+
+// ==========================================================================
+// Automatic Graph Layout Engine ("✨ Uspořádat strom")
+// - Only runs when explicitly triggered (or on initial legacy migration)
+// - Preserves manual generation labels (never overwrites member.role)
+// - Preserves positions of one-off / isolated nodes (when includeIsolated = false)
+// - Properly aligns dual parent lineages above married couples (c -> Václav, a -> b)
+// ==========================================================================
+function organizeFamilyGraphLayout(includeIsolated = false) {
+  if (!SITE_DATA.familyTree || !Array.isArray(SITE_DATA.familyTree.nodes)) return;
+  const nodes = SITE_DATA.familyTree.nodes;
+  if (nodes.length === 0) return;
+
+  PERSON_MAP.clear();
+  nodes.forEach(n => PERSON_MAP.set(n.id, n));
+
+  const childrenOf = new Map();
+  nodes.forEach(n => childrenOf.set(n.id, []));
+  nodes.forEach(n => {
+    if (n.parentId && childrenOf.has(n.parentId)) {
+      childrenOf.get(n.parentId).push(n.id);
+    }
+  });
+
+  function isNodeConnected(n) {
+    return Boolean(n.parentId || n.spouseId || (childrenOf.get(n.id)?.length > 0));
+  }
+
+  const connectedNodes = nodes.filter(isNodeConnected);
+  const isolatedNodes = nodes.filter(n => !isNodeConnected(n));
+
+  // Partition connected nodes into connected components
+  const visitedComp = new Set();
+  const components = [];
+
+  connectedNodes.forEach(startNode => {
+    if (visitedComp.has(startNode.id)) return;
+    const comp = [];
+    const q = [startNode.id];
+    visitedComp.add(startNode.id);
+    while (q.length > 0) {
+      const currId = q.shift();
+      const curr = PERSON_MAP.get(currId);
+      if (!curr) continue;
+      comp.push(curr);
+
+      const neighbors = [];
+      if (curr.parentId) neighbors.push(curr.parentId);
+      if (curr.spouseId) neighbors.push(curr.spouseId);
+      (childrenOf.get(currId) || []).forEach(cid => neighbors.push(cid));
+
+      neighbors.forEach(nbId => {
+        if (!visitedComp.has(nbId) && PERSON_MAP.has(nbId)) {
+          visitedComp.add(nbId);
+          q.push(nbId);
+        }
+      });
+    }
+    components.push(comp);
+  });
+
+  // Sort components largest first (main Pokorný tree first)
+  components.sort((a, b) => b.length - a.length);
+
+  let nextComponentOffsetX = TREE_PAD_X;
+
+  components.forEach(comp => {
+    // 1. Assign relative generation row to every node in component
+    // Spouse pairs share the exact same row; parent is at row(child) - 1
+    const rowMap = new Map();
+    comp.forEach(n => rowMap.set(n.id, 0));
+
+    for (let iter = 0; iter < comp.length * 3; iter++) {
+      let changed = false;
+      comp.forEach(n => {
+        if (n.spouseId && rowMap.has(n.spouseId)) {
+          const rA = rowMap.get(n.id);
+          const rB = rowMap.get(n.spouseId);
+          if (rA !== rB) {
+            const maxR = Math.max(rA, rB);
+            rowMap.set(n.id, maxR);
+            rowMap.set(n.spouseId, maxR);
+            changed = true;
           }
+        }
+        if (n.parentId && rowMap.has(n.parentId)) {
+          const rChild = rowMap.get(n.id);
+          const rParent = rowMap.get(n.parentId);
+          if (rChild !== rParent + 1) {
+            if (rChild < rParent + 1) {
+              rowMap.set(n.id, rParent + 1);
+            } else {
+              // Pull parent down to rChild - 1 so dual parents (c -> Václav, a -> b) sit on the exact row above their child
+              rowMap.set(n.parentId, rChild - 1);
+            }
+            changed = true;
+          }
+        }
+      });
+      if (!changed) break;
+    }
+
+    const minRow = Math.min(...Array.from(rowMap.values()));
+    comp.forEach(n => rowMap.set(n.id, rowMap.get(n.id) - minRow));
+
+    // 2. Group nodes into Couple Units (or Single Units)
+    const unitById = new Map();
+    const nodeToUnit = new Map();
+    const units = [];
+
+    comp.forEach(n => {
+      if (nodeToUnit.has(n.id)) return;
+      if (n.spouseId && PERSON_MAP.has(n.spouseId)) {
+        const sp = PERSON_MAP.get(n.spouseId);
+        // Determine left vs right partner: keep primary lineage or existing left-to-right order
+        let leftNode = n;
+        let rightNode = sp;
+        if (
+          (!n.parentId && sp.parentId && n.branch !== 'pharmacist') ||
+          (Number.isFinite(n.x) && Number.isFinite(sp.x) && sp.x < n.x - 10 && sp.branch === 'pharmacist')
+        ) {
+          leftNode = sp;
+          rightNode = n;
+        }
+        const unit = {
+          id: `unit-${leftNode.id}`,
+          left: leftNode,
+          right: rightNode,
+          row: rowMap.get(leftNode.id),
+          width: TREE_CARD_W * 2 + TREE_COUPLE_GAP,
+          childrenUnits: [],
+          x: 0,
+          subtreeWidth: TREE_CARD_W * 2 + TREE_COUPLE_GAP,
+          placed: false
+        };
+        units.push(unit);
+        unitById.set(unit.id, unit);
+        nodeToUnit.set(leftNode.id, unit);
+        nodeToUnit.set(rightNode.id, unit);
+      } else {
+        const unit = {
+          id: `unit-${n.id}`,
+          left: n,
+          right: null,
+          row: rowMap.get(n.id),
+          width: TREE_CARD_W,
+          childrenUnits: [],
+          x: 0,
+          subtreeWidth: TREE_CARD_W,
+          placed: false
+        };
+        units.push(unit);
+        unitById.set(unit.id, unit);
+        nodeToUnit.set(n.id, unit);
+      }
+    });
+
+    // Build parentUnit -> childUnit links
+    const primaryParentUnitOf = new Map();
+    units.forEach(u => {
+      const pLeft = u.left.parentId ? nodeToUnit.get(u.left.parentId) : null;
+      const pRight = u.right?.parentId ? nodeToUnit.get(u.right.parentId) : null;
+      const primaryParent = pLeft || pRight;
+      if (primaryParent && primaryParent !== u) {
+        primaryParentUnitOf.set(u.id, primaryParent);
+        if (!primaryParent.childrenUnits.includes(u)) {
+          primaryParent.childrenUnits.push(u);
+        }
+      }
+    });
+
+    // Compute subtree sizes bottom-up so the main trunk root is laid out first
+    const memoDescCount = new Map();
+    function countDescendants(u) {
+      if (memoDescCount.has(u.id)) return memoDescCount.get(u.id);
+      let total = 1;
+      u.childrenUnits.forEach(ch => { total += countDescendants(ch); });
+      memoDescCount.set(u.id, total);
+      return total;
+    }
+    units.forEach(countDescendants);
+
+    function computeSubtreeWidth(u, visited = new Set()) {
+      if (visited.has(u.id)) return u.width;
+      visited.add(u.id);
+      if (u.childrenUnits.length === 0) {
+        u.subtreeWidth = u.width;
+        return u.width;
+      }
+      const childrenTotal = u.childrenUnits.reduce((acc, ch) => acc + computeSubtreeWidth(ch, visited), 0) +
+        TREE_SIBLING_GAP * (u.childrenUnits.length - 1);
+      u.subtreeWidth = Math.max(u.width, childrenTotal);
+      return u.subtreeWidth;
+    }
+
+    function layoutSubtreeTopDown(u, leftEdgeX, visited = new Set()) {
+      if (visited.has(u.id)) return;
+      visited.add(u.id);
+      u.placed = true;
+      u.x = leftEdgeX + (u.subtreeWidth - u.width) / 2;
+
+      if (u.childrenUnits.length > 0) {
+        const childrenTotal = u.childrenUnits.reduce((acc, ch) => acc + ch.subtreeWidth, 0) +
+          TREE_SIBLING_GAP * (u.childrenUnits.length - 1);
+        let childStart = u.x + u.width / 2 - childrenTotal / 2;
+        u.childrenUnits.forEach(ch => {
+          layoutSubtreeTopDown(ch, childStart, visited);
+          childStart += ch.subtreeWidth + TREE_SIBLING_GAP;
         });
-        delete node.spouse.children;
       }
-
-      if (node.parentTargetId && node.parentTargetId !== node.id && node.parentTargetId !== node.spouse.id) {
-        node.parentTargetId = node.id;
-      }
-    } else {
-      delete node.parentTargetId;
     }
 
-    if (Array.isArray(node.children)) {
-      node.children.forEach(ch => cleanNode(ch, isMainTree));
+    // Find root units sorted by descendant count descending
+    const rootUnits = units
+      .filter(u => !primaryParentUnitOf.has(u.id))
+      .sort((a, b) => (memoDescCount.get(b.id) || 0) - (memoDescCount.get(a.id) || 0));
+
+    if (rootUnits.length > 0) {
+      const mainRoot = rootUnits[0];
+      computeSubtreeWidth(mainRoot);
+      layoutSubtreeTopDown(mainRoot, nextComponentOffsetX);
+    }
+
+    // Position any secondary ancestor units (such as `a -> b` where `b` is the right partner of an already-placed couple)
+    // directly above their target child card!
+    const unplaced = units.filter(u => !u.placed).sort((a, b) => b.row - a.row);
+    unplaced.forEach(u => {
+      // Find any child node pointing to u.left or u.right
+      const childNode = comp.find(n => n.parentId === u.left.id || (u.right && n.parentId === u.right.id));
+      if (childNode) {
+        const childUnit = nodeToUnit.get(childNode.id);
+        if (childUnit && childUnit.placed) {
+          const childCardX = (childUnit.right && childUnit.right.id === childNode.id)
+            ? (childUnit.x + TREE_CARD_W + TREE_COUPLE_GAP)
+            : childUnit.x;
+          u.x = childCardX + TREE_CARD_W / 2 - u.width / 2;
+          u.placed = true;
+          return;
+        }
+      }
+      computeSubtreeWidth(u);
+      layoutSubtreeTopDown(u, nextComponentOffsetX);
+    });
+
+    // Also align single-child ancestor units directly above the specific partner card they connect to!
+    const maxRow = Math.max(...units.map(u => u.row));
+    for (let r = maxRow - 1; r >= 0; r--) {
+      const rowUnits = units.filter(u => u.row === r);
+      rowUnits.forEach(u => {
+        const directChildNodes = comp.filter(n => n.parentId === u.left.id || (u.right && n.parentId === u.right.id));
+        if (directChildNodes.length === 1) {
+          const cNode = directChildNodes[0];
+          const cUnit = nodeToUnit.get(cNode.id);
+          if (cUnit && cUnit.right) {
+            // Child is part of a married couple -> center parent unit directly over that specific partner card!
+            const targetCardX = (cUnit.right.id === cNode.id)
+              ? (cUnit.x + TREE_CARD_W + TREE_COUPLE_GAP)
+              : cUnit.x;
+            u.x = targetCardX + TREE_CARD_W / 2 - u.width / 2;
+          }
+        }
+      });
+    }
+
+    // Resolve any horizontal overlaps row-by-row
+    for (let r = 0; r <= maxRow; r++) {
+      const rowUnits = units.filter(u => u.row === r).sort((a, b) => a.x - b.x);
+      for (let i = 1; i < rowUnits.length; i++) {
+        const prev = rowUnits[i - 1];
+        const curr = rowUnits[i];
+        const minAllowedX = prev.x + prev.width + TREE_SIBLING_GAP;
+        if (curr.x < minAllowedX) {
+          curr.x = minAllowedX;
+        }
+      }
+    }
+
+    // Write final coordinates back to nodes in this component
+    let compMinX = Infinity;
+    let compMaxX = -Infinity;
+    units.forEach(u => {
+      const y = TREE_PAD_Y + u.row * TREE_ROW_STEP_Y;
+      u.left.x = Math.round(u.x);
+      u.left.y = Math.round(y);
+      compMinX = Math.min(compMinX, u.left.x);
+      compMaxX = Math.max(compMaxX, u.left.x + TREE_CARD_W);
+      if (u.right) {
+        u.right.x = Math.round(u.x + TREE_CARD_W + TREE_COUPLE_GAP);
+        u.right.y = Math.round(y);
+        compMaxX = Math.max(compMaxX, u.right.x + TREE_CARD_W);
+      }
+    });
+
+    if (compMinX < nextComponentOffsetX) {
+      const shift = nextComponentOffsetX - compMinX;
+      comp.forEach(n => { n.x = Math.round(n.x + shift); });
+      compMaxX += shift;
+    }
+
+    nextComponentOffsetX = Math.max(nextComponentOffsetX, compMaxX + 90);
+  });
+
+  if (includeIsolated) {
+    isolatedNodes.forEach((n, idx) => {
+      n.x = Math.round(nextComponentOffsetX + (idx % 2) * (TREE_CARD_W + TREE_SIBLING_GAP));
+      n.y = Math.round(TREE_PAD_Y + Math.floor(idx / 2) * TREE_ROW_STEP_Y);
+    });
+  }
+
+  normalizeGraphOrigin(false);
+}
+window.organizeFamilyGraphLayout = organizeFamilyGraphLayout;
+
+function normalizeGraphOrigin(compensateViewportPan = false) {
+  const nodes = SITE_DATA.familyTree?.nodes;
+  if (!Array.isArray(nodes) || nodes.length === 0) return;
+
+  const minX = Math.min(...nodes.map(n => n.x));
+  const minY = Math.min(...nodes.map(n => n.y));
+
+  let shiftX = 0;
+  let shiftY = 0;
+  if (minX < TREE_PAD_X) shiftX = TREE_PAD_X - minX;
+  if (minY < TREE_PAD_Y) shiftY = TREE_PAD_Y - minY;
+
+  if (shiftX !== 0 || shiftY !== 0) {
+    nodes.forEach(n => {
+      n.x = Math.round(n.x + shiftX);
+      n.y = Math.round(n.y + shiftY);
+    });
+    if (compensateViewportPan && window.treePanZoomApi && typeof window.treePanZoomApi.shiftPan === 'function') {
+      const scale = window.treePanZoomApi.getScale();
+      window.treePanZoomApi.shiftPan(-shiftX * scale, -shiftY * scale);
     }
   }
-
-  cleanNode(SITE_DATA.familyTree.treeRoot, true);
-  rescuedNodes.forEach(rn => {
-    cleanNode(rn, false);
-    SITE_DATA.familyTree.detachedNodes.push(rn);
-  });
-
-  // Remove any detached node that is already in the main tree or duplicated
-  const seenDetached = new Set();
-  SITE_DATA.familyTree.detachedNodes = SITE_DATA.familyTree.detachedNodes.filter(d => {
-    if (!d || !d.id || mainTreeIds.has(d.id) || seenDetached.has(d.id)) return false;
-    seenDetached.add(d.id);
-    cleanNode(d, false);
-    return true;
-  });
 }
-window.sanitizeTreeStructure = sanitizeTreeStructure;
-
-function indexFamilyTree(node, parentId = null) {
-  if (!node) return;
-  delete node._isSpouseOf;
-  node._parentId = parentId;
-  PERSON_MAP.set(node.id, node);
-  if (node.spouse) {
-    node.spouse._isSpouseOf = node.id;
-    node.spouse._parentId = null;
-    PERSON_MAP.set(node.spouse.id, node.spouse);
-  }
-  if (Array.isArray(node.children)) {
-    node.children.forEach(child => indexFamilyTree(child, node.id));
-  }
-}
+window.normalizeGraphOrigin = normalizeGraphOrigin;
 
 function renderGenealogyTreeDom() {
   const rootEl = document.getElementById('genealogy-root');
-  if (!rootEl || !SITE_DATA.familyTree || !SITE_DATA.familyTree.treeRoot) return;
+  if (!rootEl) return;
 
-  sanitizeTreeStructure();
-
-  const isCmsMode = document.body.classList.contains('cms-visual-active');
+  ensureFamilyGraphModel();
+  const nodes = SITE_DATA.familyTree.nodes || [];
 
   PERSON_MAP.clear();
-  indexFamilyTree(SITE_DATA.familyTree.treeRoot, null);
+  nodes.forEach(n => PERSON_MAP.set(n.id, n));
 
-  // Only index and render detached/unconnected nodes when in authenticated CMS mode
-  const detached = isCmsMode && Array.isArray(SITE_DATA.familyTree.detachedNodes)
-    ? SITE_DATA.familyTree.detachedNodes
-    : [];
-  detached.forEach(d => indexFamilyTree(d, null));
-
-  const detachedHtml = (isCmsMode && detached.length > 0)
-    ? `
-      <div class="tree-detached-tray" id="tree-detached-tray">
-        <div class="tree-detached-title">Nezařazené osobnosti (přetáhněte bod nahoře pod rodiče nebo k partnerovi):</div>
-        <ul class="org-ul root-ul detached-ul">
-          ${detached.map(node => renderTreeNode(node, true)).join('')}
-        </ul>
-      </div>
-    `
-    : '';
+  // Build wedding rings for each married couple (once per pair)
+  const renderedPairs = new Set();
+  const ringsHtml = [];
+  nodes.forEach(n => {
+    if (n.spouseId && PERSON_MAP.has(n.spouseId)) {
+      const pairKey = [n.id, n.spouseId].sort().join('::');
+      if (!renderedPairs.has(pairKey)) {
+        renderedPairs.add(pairKey);
+        const [idA, idB] = [n.id, n.spouseId].sort();
+        ringsHtml.push(
+          `<div class="tree-couple-ring" data-spouse-a="${idA}" data-spouse-b="${idB}" title="Manželský svazek (v CMS kliknutím rozpojíte)">⚭</div>`
+        );
+      }
+    }
+  });
 
   rootEl.innerHTML = `
     <svg id="tree-connectors-svg" class="tree-connectors-svg" aria-hidden="true"></svg>
-    <svg id="cms-flowchart-svg" class="cms-flowchart-svg" aria-hidden="true"></svg>
-    <ul class="org-ul root-ul">${renderTreeNode(SITE_DATA.familyTree.treeRoot, false)}</ul>
-    ${detachedHtml}
+    <div id="tree-nodes-layer" class="tree-nodes-layer">
+      ${nodes.map(node => renderPersonCard(node)).join('')}
+      ${ringsHtml.join('')}
+    </div>
   `;
 
+  updateTreeConnectorsSvg();
   requestAnimationFrame(() => {
     updateTreeConnectorsSvg();
   });
@@ -314,81 +777,124 @@ function renderGenealogyTreeDom() {
 function updateTreeConnectorsSvg() {
   const rootEl = document.getElementById('genealogy-root');
   const svgEl = document.getElementById('tree-connectors-svg');
-  if (!rootEl || !svgEl || !SITE_DATA.familyTree?.treeRoot) return;
+  const nodes = SITE_DATA.familyTree?.nodes;
+  if (!rootEl || !svgEl || !Array.isArray(nodes)) return;
 
-  const rootRect = rootEl.getBoundingClientRect();
-  const scale = (rootEl.offsetWidth > 0 && rootRect.width > 0)
-    ? (rootRect.width / rootEl.offsetWidth)
-    : (window.treePanZoomApi ? window.treePanZoomApi.getScale() : 1);
+  const boxById = new Map();
+  let maxX = 800;
+  let maxY = 500;
 
-  const paths = [];
+  nodes.forEach(n => {
+    const el = document.getElementById(`person-${n.id}`);
+    const w = el ? (el.offsetWidth || TREE_CARD_W) : TREE_CARD_W;
+    const h = el ? (el.offsetHeight || TREE_CARD_H) : TREE_CARD_H;
+    const x = Number.isFinite(n.x) ? n.x : TREE_PAD_X;
+    const y = Number.isFinite(n.y) ? n.y : TREE_PAD_Y;
 
-  function getLocalBox(el) {
-    const r = el.getBoundingClientRect();
-    return {
-      left: (r.left - rootRect.left) / scale,
-      right: (r.right - rootRect.left) / scale,
-      top: (r.top - rootRect.top) / scale,
-      bottom: (r.bottom - rootRect.top) / scale,
-      cx: (r.left + r.width / 2 - rootRect.left) / scale,
-      cy: (r.top + r.height / 2 - rootRect.top) / scale
-    };
-  }
-
-  function walkConnectors(parentNode) {
-    if (!parentNode || !Array.isArray(parentNode.children) || parentNode.children.length === 0) return;
-
-    const pCard = document.getElementById(`person-${parentNode.id}`);
-    if (!pCard) return;
-    const pBox = getLocalBox(pCard);
-
-    let startX = pBox.cx;
-    let startY = pBox.bottom;
-    let parentRowBottom = pBox.bottom;
-
-    if (parentNode.spouse) {
-      const sCard = document.getElementById(`person-${parentNode.spouse.id}`);
-      const ringEl = rootEl.querySelector(`.tree-couple-ring[data-spouse-ring="${parentNode.id}"]`);
-      if (ringEl && sCard) {
-        const ringBox = getLocalBox(ringEl);
-        const sBox = getLocalBox(sCard);
-        startX = ringBox.cx;
-        startY = ringBox.bottom;
-        parentRowBottom = Math.max(pBox.bottom, sBox.bottom);
-      }
-    }
-
-    const childTargets = [];
-    parentNode.children.forEach(child => {
-      // Connect directly to the specific child in a married couple (defaulting to child.id, or child.spouse.id if parentTargetId points to spouse)
-      const targetId = (child.spouse && child.parentTargetId === child.spouse.id)
-        ? child.spouse.id
-        : child.id;
-      const cCard = document.getElementById(`person-${targetId}`);
-      if (cCard) {
-        const cBox = getLocalBox(cCard);
-        childTargets.push({ endX: cBox.cx, endY: cBox.top });
-      }
+    boxById.set(n.id, {
+      left: x,
+      right: x + w,
+      top: y,
+      bottom: y + h,
+      cx: x + w / 2,
+      cy: y + h / 2,
+      w,
+      h
     });
 
-    if (childTargets.length > 0) {
-      const minChildTop = Math.min(...childTargets.map(t => t.endY));
-      const midY = parentRowBottom + Math.max(12, (minChildTop - parentRowBottom) / 2);
+    maxX = Math.max(maxX, x + w + TREE_PAD_X);
+    maxY = Math.max(maxY, y + h + TREE_PAD_Y);
+  });
 
-      childTargets.forEach(({ endX, endY }) => {
-        paths.push(
-          `<path d="M ${startX.toFixed(1)} ${startY.toFixed(1)} L ${startX.toFixed(1)} ${midY.toFixed(1)} L ${endX.toFixed(1)} ${midY.toFixed(1)} L ${endX.toFixed(1)} ${endY.toFixed(1)}" fill="none" stroke="var(--accent-gold, #9e7b42)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`
-        );
-      });
+  rootEl.style.width = `${Math.round(maxX)}px`;
+  rootEl.style.height = `${Math.round(maxY)}px`;
+
+  const paths = [];
+  const coupleOriginByMemberId = new Map();
+  const processedPairs = new Set();
+
+  // 1. Position wedding rings (⚭) and draw horizontal marriage connector lines
+  nodes.forEach(n => {
+    if (!n.spouseId || !boxById.has(n.id) || !boxById.has(n.spouseId)) return;
+    const [idA, idB] = [n.id, n.spouseId].sort();
+    const pairKey = `${idA}::${idB}`;
+    if (processedPairs.has(pairKey)) return;
+    processedPairs.add(pairKey);
+
+    const b1 = boxById.get(idA);
+    const b2 = boxById.get(idB);
+    const leftBox = b1.cx <= b2.cx ? b1 : b2;
+    const rightBox = b1.cx <= b2.cx ? b2 : b1;
+
+    const ringCx = (leftBox.right + rightBox.left) / 2;
+    const ringCy = (leftBox.cy + rightBox.cy) / 2;
+
+    const ringEl = rootEl.querySelector(`.tree-couple-ring[data-spouse-a="${idA}"][data-spouse-b="${idB}"]`);
+    if (ringEl) {
+      ringEl.style.left = `${Math.round(ringCx - 15)}px`;
+      ringEl.style.top = `${Math.round(ringCy - 15)}px`;
     }
 
-    parentNode.children.forEach(walkConnectors);
-  }
+    // Draw line connecting the two spouse cards through the wedding ring
+    paths.push(
+      `<path d="M ${leftBox.right.toFixed(1)} ${leftBox.cy.toFixed(1)} L ${ringCx.toFixed(1)} ${ringCy.toFixed(1)} L ${rightBox.left.toFixed(1)} ${rightBox.cy.toFixed(1)}" fill="none" stroke="var(--accent-gold, #9e7b42)" stroke-width="2" stroke-linecap="round" />`
+    );
 
-  walkConnectors(SITE_DATA.familyTree.treeRoot);
-  if (document.body.classList.contains('cms-visual-active') && Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
-    SITE_DATA.familyTree.detachedNodes.forEach(walkConnectors);
-  }
+    const origin = {
+      key: `couple:${pairKey}`,
+      startX: ringCx,
+      startY: ringCy + 15,
+      rowBottom: Math.max(leftBox.bottom, rightBox.bottom)
+    };
+    coupleOriginByMemberId.set(idA, origin);
+    coupleOriginByMemberId.set(idB, origin);
+  });
+
+  // 2. Group parent -> child connections by parent origin (couple ring if parent is married, or bottom-center of single parent)
+  const parentGroups = new Map();
+
+  nodes.forEach(child => {
+    if (!child.parentId || !boxById.has(child.id) || !boxById.has(child.parentId)) return;
+    const cBox = boxById.get(child.id);
+    const pBox = boxById.get(child.parentId);
+
+    const origin = coupleOriginByMemberId.get(child.parentId) || {
+      key: `single:${child.parentId}`,
+      startX: pBox.cx,
+      startY: pBox.bottom,
+      rowBottom: pBox.bottom
+    };
+
+    if (!parentGroups.has(origin.key)) {
+      parentGroups.set(origin.key, {
+        startX: origin.startX,
+        startY: origin.startY,
+        rowBottom: origin.rowBottom,
+        targets: []
+      });
+    }
+    // Line leads directly to the top-center of this specific child's card!
+    parentGroups.get(origin.key).targets.push({
+      endX: cBox.cx,
+      endY: cBox.top
+    });
+  });
+
+  parentGroups.forEach(group => {
+    const { startX, startY, rowBottom, targets } = group;
+    if (targets.length === 0) return;
+
+    const minChildTop = Math.min(...targets.map(t => t.endY));
+    const midY = minChildTop > rowBottom + 10
+      ? rowBottom + (minChildTop - rowBottom) / 2
+      : (startY + minChildTop) / 2;
+
+    targets.forEach(({ endX, endY }) => {
+      paths.push(
+        `<path d="M ${startX.toFixed(1)} ${startY.toFixed(1)} L ${startX.toFixed(1)} ${midY.toFixed(1)} L ${endX.toFixed(1)} ${midY.toFixed(1)} L ${endX.toFixed(1)} ${endY.toFixed(1)}" fill="none" stroke="var(--accent-gold, #9e7b42)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`
+      );
+    });
+  });
 
   svgEl.innerHTML = paths.join('');
 }
@@ -397,26 +903,28 @@ window.addEventListener('resize', () => {
   requestAnimationFrame(updateTreeConnectorsSvg);
 });
 
-function renderPersonCard(member, isDetached = false) {
+function renderPersonCard(member) {
   const quickDates = member.deathDate && member.deathDate !== '—'
     ? `${member.birthDate} &bull; ${member.deathDate}`
     : `${member.birthDate}`;
 
-  const offsetStyle = (member.cmsOffsetX || member.cmsOffsetY)
-    ? `style="transform: translate(${Math.round(member.cmsOffsetX || 0)}px, ${Math.round(member.cmsOffsetY || 0)}px);" data-offset-x="${member.cmsOffsetX || 0}" data-offset-y="${member.cmsOffsetY || 0}"`
-    : '';
+  const posX = Math.round(Number.isFinite(member.x) ? member.x : TREE_PAD_X);
+  const posY = Math.round(Number.isFinite(member.y) ? member.y : TREE_PAD_Y);
+  const roleLabel = member.role !== undefined && member.role !== null && String(member.role).trim() !== ''
+    ? member.role
+    : (member.gen ? `${member.gen}. gen.` : '');
 
   return `
-    <article class="tree-person-card branch-${member.branch || 'family'} ${isDetached ? 'is-detached-card' : ''}" id="person-${member.id}" data-person-id="${member.id}" ${offsetStyle}>
+    <article class="tree-person-card branch-${member.branch || 'family'}" id="person-${member.id}" data-person-id="${member.id}" style="left: ${posX}px; top: ${posY}px;">
       <!-- Top connector port (Child Input / Detach from parent) -->
-      <div class="cms-tree-port cms-port-top" data-port="top" data-person-id="${member.id}" title="Horní bod (napojení na rodiče – kliknutím odpojíte)"></div>
+      <div class="cms-tree-port cms-port-top" data-port="top" data-person-id="${member.id}" title="Horní bod (přetáhněte k rodiči nebo kliknutím odpojte od rodiče)"></div>
 
       <!-- Side connector port (Spouse link) -->
       <div class="cms-tree-port cms-port-spouse" data-port="spouse" data-person-id="${member.id}" title="Partnerský bod (přetáhněte na kartu partnera)">⚭</div>
 
       <button type="button" class="tree-person-trigger" title="Zobrazit detail osobnosti: ${member.name}">
         <div class="tree-person-summary">
-          <div class="tree-person-role-tag">${member.role || `${member.gen || ''}. gen.`}</div>
+          <div class="tree-person-role-tag">${roleLabel}</div>
           <div class="tree-person-name">${member.name}</div>
           <div class="tree-person-quickdates">${quickDates}</div>
         </div>
@@ -426,32 +934,6 @@ function renderPersonCard(member, isDetached = false) {
       <!-- Bottom connector port (Parent Output -> Drag to child's top port) -->
       <div class="cms-tree-port cms-port-bottom" data-port="bottom" data-person-id="${member.id}" title="Spodní bod rodiče (přetáhněte na horní bod dítěte)"></div>
     </article>
-  `;
-}
-
-function renderTreeNode(node, isDetached = false) {
-  const hasSpouse = Boolean(node.spouse);
-  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
-
-  const nodeGroupHtml = hasSpouse
-    ? `
-      <div class="tree-couple-group">
-        ${renderPersonCard(node, isDetached)}
-        <div class="tree-couple-ring" data-spouse-ring="${node.id}" title="Manželský svazek (v CMS kliknutím rozpojíte)">⚭</div>
-        ${renderPersonCard(node.spouse, false)}
-      </div>
-    `
-    : `<div class="tree-single-group">${renderPersonCard(node, isDetached)}</div>`;
-
-  const childrenHtml = hasChildren
-    ? `<ul class="org-ul">${node.children.map(child => renderTreeNode(child, false)).join('')}</ul>`
-    : '';
-
-  return `
-    <li class="org-li" data-node-li="${node.id}">
-      ${nodeGroupHtml}
-      ${childrenHtml}
-    </li>
   `;
 }
 
@@ -477,10 +959,9 @@ function openPersonOverlayModal(member) {
   wirePersonCarousel(leftPane, photos);
 
   const relationsHtml = buildPersonRelationsHtml(member);
-  const cleanProfession = (member.role || '').replace(/^\d+\.\s*gen\.\s*•\s*/i, '').trim();
-  const roleHeader = cleanProfession
-    ? `${member.gen}. generace • ${cleanProfession}`
-    : `${member.gen}. generace`;
+  const roleHeader = (member.role && String(member.role).trim() !== '')
+    ? member.role
+    : (member.gen ? `${member.gen}. generace` : 'Člen rodu Pokorných');
 
   rightPane.className = 'modal-right-pane modal-pane-details';
   rightPane.innerHTML = `
@@ -534,33 +1015,26 @@ window.PERSON_MAP = PERSON_MAP;
 
 function buildPersonRelationsHtml(member) {
   const pills = [];
-  const coupleOwner = (member._isSpouseOf && PERSON_MAP.has(member._isSpouseOf))
-    ? PERSON_MAP.get(member._isSpouseOf)
-    : member;
-  const linkedChildId = (coupleOwner.spouse && coupleOwner.parentTargetId === coupleOwner.spouse.id)
-    ? coupleOwner.spouse.id
-    : coupleOwner.id;
 
-  // Show parent(s) only on the partner in the couple who is actually their child
-  if (member.id === linkedChildId && coupleOwner._parentId && PERSON_MAP.has(coupleOwner._parentId)) {
-    const p = PERSON_MAP.get(coupleOwner._parentId);
+  if (member.parentId && PERSON_MAP.has(member.parentId)) {
+    const p = PERSON_MAP.get(member.parentId);
     pills.push(`<button type="button" class="relation-pill" data-jump-person="${p.id}">↑ Rodič: ${p.name}</button>`);
-    if (p.spouse) {
-      pills.push(`<button type="button" class="relation-pill" data-jump-person="${p.spouse.id}">↑ Rodič: ${p.spouse.name}</button>`);
+    if (p.spouseId && PERSON_MAP.has(p.spouseId)) {
+      const pSpouse = PERSON_MAP.get(p.spouseId);
+      pills.push(`<button type="button" class="relation-pill" data-jump-person="${pSpouse.id}">↑ Rodič: ${pSpouse.name}</button>`);
     }
   }
-  if (member._isSpouseOf && PERSON_MAP.has(member._isSpouseOf)) {
-    const sp = PERSON_MAP.get(member._isSpouseOf);
+
+  if (member.spouseId && PERSON_MAP.has(member.spouseId)) {
+    const sp = PERSON_MAP.get(member.spouseId);
     pills.push(`<button type="button" class="relation-pill" data-jump-person="${sp.id}">⚭ ${sp.name}</button>`);
   }
-  if (member.spouse) {
-    pills.push(`<button type="button" class="relation-pill" data-jump-person="${member.spouse.id}">⚭ ${member.spouse.name}</button>`);
-  }
-  if (Array.isArray(coupleOwner.children) && coupleOwner.children.length > 0) {
-    coupleOwner.children.forEach(ch => {
-      pills.push(`<button type="button" class="relation-pill" data-jump-person="${ch.id}">↳ ${ch.name}</button>`);
-    });
-  }
+
+  const children = getCoupleChildren(member);
+  children.forEach(ch => {
+    pills.push(`<button type="button" class="relation-pill" data-jump-person="${ch.id}">↳ ${ch.name}</button>`);
+  });
+
   if (pills.length === 0) return '';
   return `
     <div class="person-relations-box">
@@ -880,7 +1354,12 @@ function setupCanvasPanAndZoom() {
     centerTree,
     focusOnElement,
     getScale: () => scale,
-    getPan: () => ({ panX, panY })
+    getPan: () => ({ panX, panY }),
+    shiftPan: (dx, dy) => {
+      panX += dx;
+      panY += dy;
+      applyTransform();
+    }
   };
   return panZoomController;
 }
