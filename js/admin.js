@@ -1928,13 +1928,16 @@
       });
     });
 
-    // 2. Clicking top port detaches child from parent (so it can be re-connected)
+    // 2. Clicking top port detaches child from parent (or adds a new parent above the root)
     rootEl.querySelectorAll('.cms-port-top').forEach(topPort => {
       topPort.addEventListener('click', (e) => {
         e.stopPropagation();
         const personId = topPort.getAttribute('data-person-id');
         if (personId === SITE_DATA.familyTree.treeRoot?.id) {
-          showCmsToast('Kořenovou kartu zakladatele nelze odpojit.');
+          const rootName = SITE_DATA.familyTree.treeRoot?.name || 'kořen stromu';
+          if (confirm(`Chcete přidat nového rodiče (předka) přímo nad „${rootName}“?`)) {
+            createParentAboveRoot();
+          }
           return;
         }
         const detachedNode = detachPersonFromTree(personId);
@@ -2099,11 +2102,6 @@
   }
 
   function connectParentToChild(parentId, childId) {
-    if (childId === SITE_DATA.familyTree.treeRoot?.id) {
-      alert('Zakladatele rodu (kořen stromu) nelze připojit jako dítě pod jinou kartu.');
-      return;
-    }
-
     let parentNode = window.PERSON_MAP?.get(parentId);
     const childNode = window.PERSON_MAP?.get(childId);
     if (!parentNode || !childNode) return;
@@ -2115,6 +2113,28 @@
 
     if (isDescendantOf(childNode, parentNode.id)) {
       alert('Nelze vytvořit smyčku (nelze připojit předka pod jeho vlastního potomka).');
+      return;
+    }
+
+    // Special case: connecting a detached person ABOVE the current treeRoot (promoting it to new root)
+    if (childId === SITE_DATA.familyTree.treeRoot?.id) {
+      const newRoot = detachPersonFromTree(parentNode.id);
+      if (!newRoot) return;
+      const oldRoot = SITE_DATA.familyTree.treeRoot;
+      if (!Array.isArray(newRoot.children)) newRoot.children = [];
+      delete newRoot.cmsOffsetX;
+      delete newRoot.cmsOffsetY;
+      delete oldRoot.cmsOffsetX;
+      delete oldRoot.cmsOffsetY;
+      newRoot.children.push(oldRoot);
+      SITE_DATA.familyTree.treeRoot = newRoot;
+
+      recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+      syncPersonLinksFromTree();
+      markDirty(true);
+      window.refreshPageView();
+      if (window.treePanZoomApi) window.treePanZoomApi.centerTree(true);
+      showCmsToast(`🔗 Nový předek nad kořenem: ${newRoot.name} → ${oldRoot.name}`);
       return;
     }
 
@@ -2132,20 +2152,60 @@
     showCmsToast(`🔗 Propojeno: ${parentNode.name} → ${detachedChild.name}`);
   }
 
+  function createParentAboveRoot() {
+    const oldRoot = SITE_DATA.familyTree?.treeRoot;
+    if (!oldRoot) return;
+
+    const newRoot = {
+      id: 'person-' + Date.now(),
+      gen: 1,
+      name: 'Předek rodu Pokorných',
+      role: '1. gen. • Předek rodu',
+      branch: 'pharmacist',
+      birthDate: '* doplnit datum',
+      deathDate: '† doplnit datum',
+      photo: null,
+      photoCaption: 'Fotografie osobnosti',
+      description: 'Životopisný medailonek osobnosti.',
+      photos: [{ url: null, caption: 'Předek rodu Pokorných' }],
+      children: [oldRoot]
+    };
+
+    delete oldRoot.cmsOffsetX;
+    delete oldRoot.cmsOffsetY;
+    SITE_DATA.familyTree.treeRoot = newRoot;
+    recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+    syncPersonLinksFromTree();
+    markDirty(true);
+    window.refreshPageView();
+    if (window.treePanZoomApi) window.treePanZoomApi.centerTree(true);
+    openTreePersonEditor(newRoot, true);
+  }
+
   function connectSpouses(personAId, personBId) {
     let nodeA = window.PERSON_MAP?.get(personAId);
-    const nodeB = window.PERSON_MAP?.get(personBId);
+    let nodeB = window.PERSON_MAP?.get(personBId);
     if (!nodeA || !nodeB) return;
 
     if (nodeA._isSpouseOf) {
       nodeA = window.PERSON_MAP.get(nodeA._isSpouseOf);
     }
-    if (nodeB.id === SITE_DATA.familyTree.treeRoot?.id || (Array.isArray(nodeB.children) && nodeB.children.length > 0)) {
+    if (nodeB._isSpouseOf) {
+      nodeB = window.PERSON_MAP.get(nodeB._isSpouseOf);
+    }
+    if (nodeA.id === nodeB.id) return;
+
+    // If user dragged from a standalone card onto the root or a card with children, swap so the standalone card becomes the spouse
+    const bIsRootOrHasChildren = nodeB.id === SITE_DATA.familyTree.treeRoot?.id || (Array.isArray(nodeB.children) && nodeB.children.length > 0);
+    const aIsRootOrHasChildren = nodeA.id === SITE_DATA.familyTree.treeRoot?.id || (Array.isArray(nodeA.children) && nodeA.children.length > 0);
+    if (bIsRootOrHasChildren && !aIsRootOrHasChildren) {
+      [nodeA, nodeB] = [nodeB, nodeA];
+    } else if (bIsRootOrHasChildren) {
       alert('Jako partnera připojte kartu bez vlastních podvětví (nebo nejprve odpojte její děti).');
       return;
     }
 
-    const detachedB = detachPersonFromTree(personBId);
+    const detachedB = detachPersonFromTree(nodeB.id);
     if (!detachedB) return;
 
     if (nodeA.spouse) {
@@ -2203,6 +2263,8 @@
       }
     });
 
+    const isCurrentRoot = member.id === SITE_DATA.familyTree.treeRoot?.id;
+    const canDeleteRoot = isCurrentRoot && Array.isArray(member.children) && member.children.length > 0;
     const currentParentId = member._parentId || '';
 
     const modal = createCmsModal(`✏️ Upravit osobnost v rodokmenu: ${member.name}`, `
@@ -2234,12 +2296,17 @@
         </div>
         <div class="cms-field">
           <label>Nadřazený rodič (lze měnit i přetažením bodů v diagramu)</label>
-          <select id="edit-tp-parent" class="cms-select" ${member.id === SITE_DATA.familyTree.treeRoot?.id ? 'disabled' : ''}>
+          <select id="edit-tp-parent" class="cms-select">
             <option value="">— Nezařazeno / Kořen / Partner —</option>
             ${allPotentialParents.map(p => `
               <option value="${escapeAttr(p.id)}" ${p.id === currentParentId ? 'selected' : ''}>${escapeHtml(p.name)} (${p.gen}. gen.)</option>
             `).join('')}
           </select>
+          ${isCurrentRoot ? `
+            <button type="button" class="cms-btn cms-btn-outline" id="add-parent-above-root-btn" style="color:#1f2421; border-color:#9e7b42; margin-top:0.4rem; align-self:flex-start;">
+              ↑ Přidat nového rodiče nad tuto osobu
+            </button>
+          ` : ''}
         </div>
         <div class="cms-field full-width">
           <label>Životopis a popis osobnosti (podporuje odkazy [www.web.cz](Název) i jména rodu)</label>
@@ -2252,7 +2319,7 @@
         </div>
       </div>
     `, `
-      <button type="button" class="cms-btn cms-btn-danger" id="delete-tp-btn" ${member.id === SITE_DATA.familyTree.treeRoot?.id ? 'disabled title="Kořen rodokmenu nelze smazat"' : ''}>
+      <button type="button" class="cms-btn cms-btn-danger" id="delete-tp-btn" ${isCurrentRoot && !canDeleteRoot ? 'disabled title="Jedinou kořenovou kartu bez potomků nelze smazat"' : ''}>
         🗑️ Smazat osobu
       </button>
       <div style="display:flex; gap:0.5rem;">
@@ -2269,13 +2336,28 @@
       renderPhotoRowsEditor(photosWrap, workingPhotos, false);
     });
 
+    modal.querySelector('#add-parent-above-root-btn')?.addEventListener('click', () => {
+      modal.remove();
+      createParentAboveRoot();
+    });
+
     modal.querySelector('#delete-tp-btn')?.addEventListener('click', () => {
-      if (member.id === SITE_DATA.familyTree.treeRoot?.id) return;
-      if (!confirm(`Opravdu chcete trvale odstranit osobu „${member.name}“ z rodokmenu?`)) return;
-      const removed = detachPersonFromTree(member.id);
-      if (removed && Array.isArray(removed.children) && removed.children.length > 0) {
+      if (isCurrentRoot) {
+        if (!canDeleteRoot) return;
+        const nextRoot = member.children[0];
+        if (!confirm(`Opravdu chcete odstranit kořenovou osobu „${member.name}“? Novým kořenem stromu se stane „${nextRoot.name}“.`)) return;
         if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
-        removed.children.forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+        if (member.spouse) SITE_DATA.familyTree.detachedNodes.push(member.spouse);
+        member.children.slice(1).forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+        SITE_DATA.familyTree.treeRoot = nextRoot;
+        recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+      } else {
+        if (!confirm(`Opravdu chcete trvale odstranit osobu „${member.name}“ z rodokmenu?`)) return;
+        const removed = detachPersonFromTree(member.id);
+        if (removed && Array.isArray(removed.children) && removed.children.length > 0) {
+          if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
+          removed.children.forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+        }
       }
       syncPersonLinksFromTree();
       markDirty(true);
@@ -2296,7 +2378,7 @@
       member.photoCaption = workingPhotos[0]?.caption || member.name;
 
       const selectedParentId = modal.querySelector('#edit-tp-parent')?.value || '';
-      if (member.id !== SITE_DATA.familyTree.treeRoot?.id && selectedParentId !== currentParentId) {
+      if (selectedParentId !== currentParentId) {
         if (selectedParentId) {
           connectParentToChild(selectedParentId, member.id);
         }
