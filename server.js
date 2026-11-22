@@ -18,13 +18,20 @@ const BACKUPS_INDEX_FILE = path.join(BACKUPS_DIR, 'backups-index.json');
 const UPLOADS_DIR = path.join(BASE_DIR, 'uploads');
 const USCHOVNA_DIR = path.join(BASE_DIR, 'uschovna');
 const CONFIG_FILE = path.join(DATA_DIR, 'admin-config.json');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const CONTENT_JS_FILE = path.join(DATA_DIR, 'content.js');
+const CONTENT_SEED_FILE = path.join(BASE_DIR, 'data-seed', 'content.js');
 const SITE_JSON_FILE = path.join(DATA_DIR, 'site-data.json');
 const DRAFT_JSON_FILE = path.join(DATA_DIR, 'draft-data.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// If data/ is mounted as an empty Docker volume on first boot, seed data/content.js from data-seed/content.js
+if (!fs.existsSync(CONTENT_JS_FILE) && fs.existsSync(CONTENT_SEED_FILE)) {
+  fs.copyFileSync(CONTENT_SEED_FILE, CONTENT_JS_FILE);
+}
 
 const DEFAULT_HASH = crypto.createHash('sha256').update('pribor1756').digest('hex');
 if (!fs.existsSync(CONFIG_FILE)) {
@@ -36,6 +43,33 @@ if (!fs.existsSync(CONFIG_FILE)) {
 
 const activeSessions = new Map();
 const loginAttempts = new Map();
+
+function loadPersistedSessions() {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'));
+      const maxAgeMs = 14 * 24 * 60 * 60 * 1000; // 14 days
+      const now = Date.now();
+      for (const [token, sess] of Object.entries(parsed || {})) {
+        if (sess && sess.csrfToken && (now - (sess.createdAt || 0) < maxAgeMs)) {
+          activeSessions.set(token, sess);
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+function savePersistedSessions() {
+  try {
+    const obj = {};
+    for (const [token, sess] of activeSessions.entries()) {
+      obj[token] = sess;
+    }
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(obj, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+loadPersistedSessions();
 
 function getAdminConfig() {
   try {
@@ -324,7 +358,8 @@ function readDraftData() {
 
 async function handleApiRequest(req, res, parsedUrl) {
   const action = parsedUrl.query.action || 'status';
-  const clientIp = req.socket.remoteAddress || 'local';
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const clientIp = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : '') || req.socket.remoteAddress || 'local';
 
   if (action === 'admin_bundle') {
     const sess = getSession(req);
@@ -396,6 +431,7 @@ async function handleApiRequest(req, res, parsedUrl) {
       const token = crypto.randomBytes(24).toString('hex');
       const csrfToken = crypto.randomBytes(24).toString('hex');
       activeSessions.set(token, { csrfToken, createdAt: Date.now() });
+      savePersistedSessions();
       const draftData = readDraftData();
       const media = listMediaAndFolders();
       const backups = loadBackupsIndex();
@@ -420,7 +456,10 @@ async function handleApiRequest(req, res, parsedUrl) {
 
   if (action === 'logout') {
     const cookies = parseCookies(req);
-    if (cookies.pokorny_cms_token) activeSessions.delete(cookies.pokorny_cms_token);
+    if (cookies.pokorny_cms_token) {
+      activeSessions.delete(cookies.pokorny_cms_token);
+      savePersistedSessions();
+    }
     return sendJson(res, 200, { ok: true, authenticated: false }, {
       'Set-Cookie': 'pokorny_cms_token=; Path=/; Max-Age=0'
     });
@@ -709,12 +748,15 @@ const MIME_TYPES = {
 };
 
 const BLOCKED_PATTERNS = [
-  /^\/data\/(admin-config\.json|login-attempts\.json|site-data\.json|draft-data\.json)$/i,
+  /^\/data\/(admin-config\.json|login-attempts\.json|sessions\.json|site-data\.json|draft-data\.json)$/i,
   /^\/data\/backups(\/|$)/i,
+  /^\/data-seed(\/|$)/i,
   /^\/js\/admin\.js$/i,
   /^\/css\/admin\.css$/i,
   /^\/notes(\/|$)/i,
   /^\/server\.js$/i,
+  /^\/Dockerfile$/i,
+  /^\/compose\.yaml$/i,
   /\/\./
 ];
 

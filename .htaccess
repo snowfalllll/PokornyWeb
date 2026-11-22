@@ -18,6 +18,8 @@ DirectoryIndex index.html
   RewriteRule (^|/)\.(?!well-known/) - [F,L]
   RewriteRule ^notes/ - [F,L]
   RewriteRule ^server\.js$ - [F,L]
+  RewriteRule ^Dockerfile$ - [F,L]
+  RewriteRule ^compose\.yaml$ - [F,L]
   RewriteRule ^js/admin\.js$ - [F,L]
   RewriteRule ^css/admin\.css$ - [F,L]
   RewriteRule \.(docx|md)$ - [F,L]

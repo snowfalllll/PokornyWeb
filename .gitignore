@@ -5,6 +5,7 @@ notes/
 # Data webu, zálohy, konfigurace CMS a nahrané soubory (kromě výchozího data/content.js)
 data/*
 !data/content.js
+data-seed/
 uploads/
 
 # Lokální prostředí, Node.js a systémové soubory

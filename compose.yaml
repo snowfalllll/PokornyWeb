@@ -1,0 +1,20 @@
+services:
+  pokorny-web:
+    build: https://github.com/snowfalllll/PokornyWeb.git#main
+    container_name: pokorny-web
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Prague
+      - PORT=3000
+    volumes:
+      - /opt/stacks/pokorny-web/data:/app/data
+      - /opt/stacks/pokorny-web/uploads:/app/uploads
+    expose:
+      - "3000"
+    networks:
+      - ntfy_net
+
+networks:
+  ntfy_net:
+    external: true
+    name: ntfy_ntfy_net
