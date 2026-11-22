@@ -206,8 +206,11 @@ body.cms-visual-active [data-cms-editing="true"] {
 }
 
 /* Interactive Elements Hover Outline in CMS Mode */
-body.cms-visual-active .cms-interactable-target {
+body.cms-visual-active .cms-interactable-target:not(.tree-person-card):not(.tree-couple-ring) {
   position: relative;
+}
+
+body.cms-visual-active .cms-interactable-target {
   transition: outline 0.15s ease;
 }
 
@@ -484,10 +487,12 @@ body.cms-visual-active .cms-port-spouse.port-hover-target {
 }
 
 body.cms-visual-active .tree-person-card {
+  position: absolute !important;
   cursor: move;
 }
 
 body.cms-visual-active .tree-couple-ring {
+  position: absolute !important;
   cursor: pointer;
 }
 
