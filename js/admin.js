@@ -59,9 +59,6 @@
           hasUnpublishedDraft = true;
           Object.assign(SITE_DATA, data.draftData);
           localStorage.setItem('pokorny_cms_draft_data', JSON.stringify(SITE_DATA));
-          if (typeof window.refreshPageView === 'function') {
-            window.refreshPageView();
-          }
         }
         activateVisualCmsMode();
       } else {
@@ -97,7 +94,11 @@
       }
     };
 
-    window.onCmsAfterPageRender();
+    if (typeof window.refreshPageView === 'function') {
+      window.refreshPageView();
+    } else {
+      window.onCmsAfterPageRender();
+    }
     setupGlobalCmsClickInterceptor();
 
     setInterval(updateLastSaveTimerDisplay, 15000);
@@ -1905,8 +1906,7 @@
 
   function wireTreeCardDraggingAndPorts() {
     const rootEl = document.getElementById('genealogy-root');
-    const svgEl = document.getElementById('cms-flowchart-svg');
-    if (!rootEl || !svgEl) return;
+    if (!rootEl) return;
 
     // 1. Clicking spouse ring in CMS mode unlinks the spouse into a standalone card
     rootEl.querySelectorAll('.tree-couple-ring').forEach(ring => {
@@ -1919,8 +1919,13 @@
           if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
             SITE_DATA.familyTree.detachedNodes = [];
           }
-          SITE_DATA.familyTree.detachedNodes.push(owner.spouse);
+          const formerSpouse = owner.spouse;
           delete owner.spouse;
+          delete owner.parentTargetId;
+          delete formerSpouse._isSpouseOf;
+          delete formerSpouse._parentId;
+          SITE_DATA.familyTree.detachedNodes.push(formerSpouse);
+          syncPersonLinksFromTree();
           markDirty(true);
           window.refreshPageView();
           showCmsToast('Partnerská vazba byla odpojena.');
@@ -1928,76 +1933,72 @@
       });
     });
 
-    // 2. Clicking top port detaches child from parent (or adds a new parent above the root)
-    rootEl.querySelectorAll('.cms-port-top').forEach(topPort => {
-      topPort.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const personId = topPort.getAttribute('data-person-id');
-        if (personId === SITE_DATA.familyTree.treeRoot?.id) {
-          const rootName = SITE_DATA.familyTree.treeRoot?.name || 'kořen stromu';
-          if (confirm(`Chcete přidat nového rodiče (předka) přímo nad „${rootName}“?`)) {
-            createParentAboveRoot();
-          }
-          return;
-        }
-        const detachedNode = detachPersonFromTree(personId);
-        if (detachedNode) {
-          if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
-            SITE_DATA.familyTree.detachedNodes = [];
-          }
-          SITE_DATA.familyTree.detachedNodes.push(detachedNode);
-          markDirty(true);
-          window.refreshPageView();
-          showCmsToast(`Karta „${detachedNode.name}“ byla odpojena. Přetáhněte spodní bod nového rodiče na její horní bod.`);
-        }
-      });
-    });
-
-    // 3. Dragging from Bottom Port (Parent Output -> Child Top Port) or Spouse Port (⚭ -> another card)
-    rootEl.querySelectorAll('.cms-port-bottom, .cms-port-spouse').forEach(sourcePort => {
+    // 2. Dragging (or clicking) ANY Port: .cms-port-top (child input), .cms-port-bottom (parent output), .cms-port-spouse (⚭)
+    rootEl.querySelectorAll('.cms-port-top, .cms-port-bottom, .cms-port-spouse').forEach(sourcePort => {
       sourcePort.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
         e.stopPropagation();
         e.preventDefault();
         closeActivePopover();
 
-        const portType = sourcePort.getAttribute('data-port'); // 'bottom' | 'spouse'
+        const portType = sourcePort.getAttribute('data-port'); // 'top' | 'bottom' | 'spouse'
         const sourceId = sourcePort.getAttribute('data-person-id');
         window._cmsDraggingTreeElement = true;
 
-        const scale = window.treePanZoomApi ? window.treePanZoomApi.getScale() : 1;
-        const rootRect = rootEl.getBoundingClientRect();
         const portRect = sourcePort.getBoundingClientRect();
-        const startX = (portRect.left + portRect.width / 2 - rootRect.left) / scale;
-        const startY = (portRect.top + portRect.height / 2 - rootRect.top) / scale;
+        const startX = portRect.left + portRect.width / 2;
+        const startY = portRect.top + portRect.height / 2;
+        let hasDraggedPort = false;
 
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', portType === 'spouse' ? '#2c6e49' : '#9e7b42');
-        path.setAttribute('stroke-width', '3');
-        path.setAttribute('stroke-dasharray', '6,4');
-        svgEl.appendChild(path);
+        // Viewport-fixed SVG overlay so the straight drag line has zero container/zoom offset
+        const dragSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        dragSvg.setAttribute('style', 'position:fixed; inset:0; width:100vw; height:100vh; pointer-events:none; z-index:9999;');
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', String(startX));
+        line.setAttribute('y1', String(startY));
+        line.setAttribute('x2', String(startX));
+        line.setAttribute('y2', String(startY));
+        line.setAttribute('stroke', portType === 'spouse' ? '#2c6e49' : '#9e7b42');
+        line.setAttribute('stroke-width', '3');
+        line.setAttribute('stroke-dasharray', '6,4');
+        line.setAttribute('stroke-linecap', 'round');
+        dragSvg.appendChild(line);
+        document.body.appendChild(dragSvg);
 
         function onMove(ev) {
-          const curRootRect = rootEl.getBoundingClientRect();
-          const curX = (ev.clientX - curRootRect.left) / scale;
-          const curY = (ev.clientY - curRootRect.top) / scale;
-          const midY = (startY + curY) / 2;
-          path.setAttribute('d', `M ${startX} ${startY} C ${startX} ${midY}, ${curX} ${midY}, ${curX} ${curY}`);
+          if (!hasDraggedPort && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 5) {
+            hasDraggedPort = true;
+          }
 
           document.querySelectorAll('.cms-tree-port').forEach(p => p.classList.remove('port-hover-target'));
           const hovered = document.elementFromPoint(ev.clientX, ev.clientY);
           const targetPort = hovered?.closest('.cms-tree-port');
+          let endX = ev.clientX;
+          let endY = ev.clientY;
           if (targetPort && targetPort !== sourcePort) {
             targetPort.classList.add('port-hover-target');
+            const tr = targetPort.getBoundingClientRect();
+            endX = tr.left + tr.width / 2;
+            endY = tr.top + tr.height / 2;
           }
+
+          line.setAttribute('x2', String(endX));
+          line.setAttribute('y2', String(endY));
         }
 
         function onUp(ev) {
           window.removeEventListener('mousemove', onMove);
           window.removeEventListener('mouseup', onUp);
           window._cmsDraggingTreeElement = false;
-          path.remove();
+          dragSvg.remove();
           document.querySelectorAll('.cms-tree-port').forEach(p => p.classList.remove('port-hover-target'));
+
+          if (!hasDraggedPort) {
+            if (portType === 'top') {
+              handleTopPortClick(sourceId);
+            }
+            return;
+          }
 
           const dropEl = document.elementFromPoint(ev.clientX, ev.clientY);
           const targetCard = dropEl?.closest('.tree-person-card');
@@ -2006,6 +2007,8 @@
 
           if (portType === 'bottom') {
             connectParentToChild(sourceId, targetId);
+          } else if (portType === 'top') {
+            connectParentToChild(targetId, sourceId);
           } else if (portType === 'spouse') {
             connectSpouses(sourceId, targetId);
           }
@@ -2016,7 +2019,7 @@
       });
     });
 
-    // 4. Dragging a Person Card to reposition it on the canvas (if moved > 5px; otherwise normal click popover fires)
+    // 3. Dragging a Person Card to reposition it on the canvas (if moved > 6px; otherwise normal click popover fires)
     rootEl.querySelectorAll('.tree-person-card').forEach(card => {
       card.addEventListener('mousedown', (e) => {
         if (e.button !== 0 || e.target.closest('.cms-tree-port')) return;
@@ -2043,6 +2046,9 @@
             member.cmsOffsetX = origOffsetX + dx;
             member.cmsOffsetY = origOffsetY + dy;
             card.style.transform = `translate(${Math.round(member.cmsOffsetX)}px, ${Math.round(member.cmsOffsetY)}px)`;
+            if (typeof window.updateTreeConnectorsSvg === 'function') {
+              window.updateTreeConnectorsSvg();
+            }
           }
         }
 
@@ -2061,6 +2067,63 @@
     });
   }
 
+  function handleTopPortClick(personId) {
+    const member = window.PERSON_MAP?.get(personId);
+    if (!member) return;
+    const coupleOwner = (member._isSpouseOf && window.PERSON_MAP?.has(member._isSpouseOf))
+      ? window.PERSON_MAP.get(member._isSpouseOf)
+      : member;
+
+    // If clicking top port on the root couple, offer to create a new ancestor above this specific partner
+    if (coupleOwner.id === SITE_DATA.familyTree.treeRoot?.id) {
+      if (confirm(`Chcete přidat nového rodiče (předka) přímo nad „${member.name}“?`)) {
+        createParentAboveRoot(member.id);
+      }
+      return;
+    }
+
+    if (!coupleOwner._parentId) {
+      showCmsToast('Tato karta je již nezařazená. Přetáhněte její horní bod na kartu rodiče.');
+      return;
+    }
+
+    // If coupleOwner is a direct child of treeRoot and treeRoot has no other children while coupleOwner has descendants,
+    // detaching the link between treeRoot and coupleOwner should detach treeRoot so the main family tree stays intact!
+    const rootNode = SITE_DATA.familyTree.treeRoot;
+    if (
+      coupleOwner._parentId === rootNode?.id &&
+      Array.isArray(rootNode.children) &&
+      rootNode.children.length === 1 &&
+      Array.isArray(coupleOwner.children) &&
+      coupleOwner.children.length > 0
+    ) {
+      if (!confirm(`Odpojit předka „${rootNode.name}“ nad „${member.name}“ do nezařazených osob?`)) return;
+      delete rootNode.children;
+      delete coupleOwner._parentId;
+      SITE_DATA.familyTree.treeRoot = coupleOwner;
+      if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
+      SITE_DATA.familyTree.detachedNodes.push(rootNode);
+      recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+      syncPersonLinksFromTree();
+      markDirty(true);
+      window.refreshPageView();
+      showCmsToast(`Předek „${rootNode.name}“ byl odpojen do nezařazených osob.`);
+      return;
+    }
+
+    const detachedNode = detachCoupleNodeFromTree(coupleOwner.id);
+    if (detachedNode) {
+      if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+        SITE_DATA.familyTree.detachedNodes = [];
+      }
+      SITE_DATA.familyTree.detachedNodes.push(detachedNode);
+      syncPersonLinksFromTree();
+      markDirty(true);
+      window.refreshPageView();
+      showCmsToast(`Karta „${detachedNode.name}“ byla odpojena od rodiče.`);
+    }
+  }
+
   function isDescendantOf(candidateChildNode, targetId) {
     if (!candidateChildNode) return false;
     if (candidateChildNode.id === targetId) return true;
@@ -2071,56 +2134,97 @@
     return false;
   }
 
-  function detachPersonFromTree(targetId) {
-    // Check detachedNodes first
+  // Detaches a primary node (keeping its .spouse attached) or a standalone node
+  function detachCoupleNodeFromTree(targetOwnerId) {
     if (Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
-      const dIdx = SITE_DATA.familyTree.detachedNodes.findIndex(n => n.id === targetId);
+      const dIdx = SITE_DATA.familyTree.detachedNodes.findIndex(n => n.id === targetOwnerId);
       if (dIdx !== -1) {
-        return SITE_DATA.familyTree.detachedNodes.splice(dIdx, 1)[0];
+        const node = SITE_DATA.familyTree.detachedNodes.splice(dIdx, 1)[0];
+        delete node._parentId;
+        delete node._isSpouseOf;
+        return node;
       }
     }
 
     let removed = null;
     const walk = (node) => {
       if (!node || removed) return;
-      if (node.spouse && node.spouse.id === targetId) {
-        removed = node.spouse;
-        delete node.spouse;
-        return;
-      }
       if (Array.isArray(node.children)) {
-        const idx = node.children.findIndex(c => c.id === targetId);
+        const idx = node.children.findIndex(c => c.id === targetOwnerId);
         if (idx !== -1) {
           removed = node.children.splice(idx, 1)[0];
+          delete removed._parentId;
+          delete removed._isSpouseOf;
           return;
         }
         node.children.forEach(walk);
       }
     };
     walk(SITE_DATA.familyTree.treeRoot);
+    if (Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+      SITE_DATA.familyTree.detachedNodes.forEach(walk);
+    }
     return removed;
   }
 
-  function connectParentToChild(parentId, childId) {
-    let parentNode = window.PERSON_MAP?.get(parentId);
-    const childNode = window.PERSON_MAP?.get(childId);
-    if (!parentNode || !childNode) return;
+  // Detaches a single person by ID (if they are a spouse, unlinks them from their partner)
+  function detachSinglePersonFromTree(targetId) {
+    const member = window.PERSON_MAP?.get(targetId);
+    if (member && member._isSpouseOf && window.PERSON_MAP?.has(member._isSpouseOf)) {
+      const owner = window.PERSON_MAP.get(member._isSpouseOf);
+      const sp = owner.spouse;
+      delete owner.spouse;
+      delete owner.parentTargetId;
+      if (sp) {
+        delete sp._isSpouseOf;
+        delete sp._parentId;
+      }
+      return sp;
+    }
+    return detachCoupleNodeFromTree(targetId);
+  }
 
-    // If user dragged from the spouse card of a couple, attach child to the main couple node
-    if (parentNode._isSpouseOf && window.PERSON_MAP?.has(parentNode._isSpouseOf)) {
-      parentNode = window.PERSON_MAP.get(parentNode._isSpouseOf);
+  function connectParentToChild(parentId, childId) {
+    const rawParent = window.PERSON_MAP?.get(parentId);
+    const rawChild = window.PERSON_MAP?.get(childId);
+    if (!rawParent || !rawChild || rawParent.id === rawChild.id) return;
+
+    // Resolve the couple owner for the parent
+    const parentOwner = (rawParent._isSpouseOf && window.PERSON_MAP?.has(rawParent._isSpouseOf))
+      ? window.PERSON_MAP.get(rawParent._isSpouseOf)
+      : rawParent;
+
+    // Resolve the couple owner for the child AND remember which partner in the child couple was targeted!
+    const specificChildId = rawChild.id;
+    const childOwner = (rawChild._isSpouseOf && window.PERSON_MAP?.has(rawChild._isSpouseOf))
+      ? window.PERSON_MAP.get(rawChild._isSpouseOf)
+      : rawChild;
+
+    if (parentOwner.id === childOwner.id) {
+      alert('Partneři v manželském páru nemohou být zároveň rodičem a dítětem.');
+      return;
     }
 
-    if (isDescendantOf(childNode, parentNode.id)) {
+    // If childOwner is ALREADY a direct child of parentOwner, just update which partner in the child couple the parent line points to!
+    if (Array.isArray(parentOwner.children) && parentOwner.children.some(c => c.id === childOwner.id)) {
+      childOwner.parentTargetId = specificChildId;
+      markDirty(true);
+      window.refreshPageView();
+      showCmsToast(`🔗 Rodičovská linie nasměrována na: ${rawChild.name}`);
+      return;
+    }
+
+    if (isDescendantOf(childOwner, parentOwner.id)) {
       alert('Nelze vytvořit smyčku (nelze připojit předka pod jeho vlastního potomka).');
       return;
     }
 
-    // Special case: connecting a detached person ABOVE the current treeRoot (promoting it to new root)
-    if (childId === SITE_DATA.familyTree.treeRoot?.id) {
-      const newRoot = detachPersonFromTree(parentNode.id);
+    // Case 1: Connecting a detached person ABOVE the current treeRoot (promoting parentOwner to new treeRoot)
+    if (childOwner.id === SITE_DATA.familyTree.treeRoot?.id) {
+      const newRoot = detachCoupleNodeFromTree(parentOwner.id);
       if (!newRoot) return;
       const oldRoot = SITE_DATA.familyTree.treeRoot;
+      oldRoot.parentTargetId = specificChildId;
       if (!Array.isArray(newRoot.children)) newRoot.children = [];
       delete newRoot.cmsOffsetX;
       delete newRoot.cmsOffsetY;
@@ -2134,27 +2238,76 @@
       markDirty(true);
       window.refreshPageView();
       if (window.treePanZoomApi) window.treePanZoomApi.centerTree(true);
-      showCmsToast(`🔗 Nový předek nad kořenem: ${newRoot.name} → ${oldRoot.name}`);
+      showCmsToast(`🔗 Nový předek nad kořenem: ${newRoot.name} → ${rawChild.name}`);
       return;
     }
 
-    const detachedChild = detachPersonFromTree(childId);
+    const childInMainTree = isDescendantOf(SITE_DATA.familyTree.treeRoot, childOwner.id);
+    const parentInMainTree = isDescendantOf(SITE_DATA.familyTree.treeRoot, parentOwner.id);
+
+    // Case 2: childOwner is ALREADY in the main tree under an existingParent, and parentOwner is in detachedNodes.
+    // Never yank a main-tree branch out into detachedNodes!
+    if (childInMainTree && !parentInMainTree && childOwner._parentId) {
+      const existingParent = window.PERSON_MAP?.get(childOwner._parentId);
+      if (
+        existingParent &&
+        !existingParent.spouse &&
+        !parentOwner.spouse &&
+        (!Array.isArray(parentOwner.children) || parentOwner.children.length === 0)
+      ) {
+        const makeSecondParent = confirm(
+          `„${rawChild.name}“ již má rodiče „${existingParent.name}“.\n\n` +
+          `Chcete „${parentOwner.name}“ připojit jako druhého rodiče (partnera k „${existingParent.name}“)?\n` +
+          `(Klikněte OK pro připojení jako druhého rodiče, nebo Zrušit pro vložení mezi „${existingParent.name}“ a „${rawChild.name}“.)`
+        );
+        if (makeSecondParent) {
+          childOwner.parentTargetId = specificChildId;
+          connectSpouses(existingParent.id, parentOwner.id);
+          return;
+        }
+      }
+
+      // Insert parentOwner into existingParent.children in place of childOwner so childOwner stays in the main tree
+      const detachedParent = detachCoupleNodeFromTree(parentOwner.id);
+      if (detachedParent && existingParent && Array.isArray(existingParent.children)) {
+        const idx = existingParent.children.findIndex(c => c.id === childOwner.id);
+        if (idx !== -1) {
+          existingParent.children.splice(idx, 1, detachedParent);
+          if (!Array.isArray(detachedParent.children)) detachedParent.children = [];
+          childOwner.parentTargetId = specificChildId;
+          detachedParent.children.push(childOwner);
+          recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+          syncPersonLinksFromTree();
+          markDirty(true);
+          window.refreshPageView();
+          showCmsToast(`🔗 Vložen rodič: ${detachedParent.name} → ${rawChild.name}`);
+          return;
+        }
+      }
+    }
+
+    // Case 3: Standard parent -> child connection (moves childOwner couple unit under parentOwner)
+    const detachedChild = detachCoupleNodeFromTree(childOwner.id);
     if (!detachedChild) return;
 
-    if (!Array.isArray(parentNode.children)) parentNode.children = [];
+    if (!Array.isArray(parentOwner.children)) parentOwner.children = [];
     delete detachedChild.cmsOffsetX;
     delete detachedChild.cmsOffsetY;
-    parentNode.children.push(detachedChild);
+    detachedChild.parentTargetId = specificChildId;
+    parentOwner.children.push(detachedChild);
 
     recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+    syncPersonLinksFromTree();
     markDirty(true);
     window.refreshPageView();
-    showCmsToast(`🔗 Propojeno: ${parentNode.name} → ${detachedChild.name}`);
+    showCmsToast(`🔗 Propojeno: ${parentOwner.name} → ${rawChild.name}`);
   }
 
-  function createParentAboveRoot() {
+  function createParentAboveRoot(targetChildId = null) {
     const oldRoot = SITE_DATA.familyTree?.treeRoot;
     if (!oldRoot) return;
+
+    oldRoot.parentTargetId = targetChildId || oldRoot.id;
 
     const newRoot = {
       id: 'person-' + Date.now(),
@@ -2183,44 +2336,114 @@
   }
 
   function connectSpouses(personAId, personBId) {
-    let nodeA = window.PERSON_MAP?.get(personAId);
-    let nodeB = window.PERSON_MAP?.get(personBId);
-    if (!nodeA || !nodeB) return;
+    let rawA = window.PERSON_MAP?.get(personAId);
+    let rawB = window.PERSON_MAP?.get(personBId);
+    if (!rawA || !rawB || rawA.id === rawB.id) return;
 
-    if (nodeA._isSpouseOf) {
-      nodeA = window.PERSON_MAP.get(nodeA._isSpouseOf);
-    }
-    if (nodeB._isSpouseOf) {
-      nodeB = window.PERSON_MAP.get(nodeB._isSpouseOf);
-    }
-    if (nodeA.id === nodeB.id) return;
+    let ownerA = (rawA._isSpouseOf && window.PERSON_MAP?.has(rawA._isSpouseOf))
+      ? window.PERSON_MAP.get(rawA._isSpouseOf)
+      : rawA;
+    let ownerB = (rawB._isSpouseOf && window.PERSON_MAP?.has(rawB._isSpouseOf))
+      ? window.PERSON_MAP.get(rawB._isSpouseOf)
+      : rawB;
 
-    // If user dragged from a standalone card onto the root or a card with children, swap so the standalone card becomes the spouse
-    const bIsRootOrHasChildren = nodeB.id === SITE_DATA.familyTree.treeRoot?.id || (Array.isArray(nodeB.children) && nodeB.children.length > 0);
-    const aIsRootOrHasChildren = nodeA.id === SITE_DATA.familyTree.treeRoot?.id || (Array.isArray(nodeA.children) && nodeA.children.length > 0);
-    if (bIsRootOrHasChildren && !aIsRootOrHasChildren) {
-      [nodeA, nodeB] = [nodeB, nodeA];
-    } else if (bIsRootOrHasChildren) {
-      alert('Jako partnera připojte kartu bez vlastních podvětví (nebo nejprve odpojte její děti).');
+    if (ownerA.id === ownerB.id) {
+      showCmsToast('Tyto dvě osoby jsou již propojeny jako partneři.');
       return;
     }
 
-    const detachedB = detachPersonFromTree(nodeB.id);
-    if (!detachedB) return;
-
-    if (nodeA.spouse) {
-      if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
-      SITE_DATA.familyTree.detachedNodes.push(nodeA.spouse);
+    if (isDescendantOf(ownerA, ownerB.id) || isDescendantOf(ownerB, ownerA.id)) {
+      alert('Nelze propojit předka a potomka jako partnery. Nejprve kartu odpojte z rodičovské větve.');
+      return;
     }
 
+    // Prefer keeping the card that is already in the main tree (or is treeRoot, or has children) as the primary ownerA
+    const aInMain = isDescendantOf(SITE_DATA.familyTree.treeRoot, ownerA.id);
+    const bInMain = isDescendantOf(SITE_DATA.familyTree.treeRoot, ownerB.id);
+    const aChildCount = Array.isArray(ownerA.children) ? ownerA.children.length : 0;
+    const bChildCount = Array.isArray(ownerB.children) ? ownerB.children.length : 0;
+
+    if (
+      (!aInMain && bInMain) ||
+      (ownerB.id === SITE_DATA.familyTree.treeRoot?.id) ||
+      (aInMain === bInMain && bChildCount > aChildCount && ownerA.id !== SITE_DATA.familyTree.treeRoot?.id)
+    ) {
+      [ownerA, ownerB] = [ownerB, ownerA];
+      [rawA, rawB] = [rawB, rawA];
+    }
+
+    if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+      SITE_DATA.familyTree.detachedNodes = [];
+    }
+
+    // If the target card rawB is currently married to someone else, confirm before unlinking their marriage
+    if (ownerB.spouse) {
+      const otherPartnerName = rawB.id === ownerB.spouse.id ? ownerB.name : ownerB.spouse.name;
+      if (!confirm(`Osoba „${rawB.name}“ je již v páru s „${otherPartnerName}“. Chcete původní manželský svazek rozpojit a propojit „${rawB.name}“ s „${rawA.name}“?`)) {
+        return;
+      }
+    }
+
+    // If ownerA already has a spouse, confirm replacing them and move old spouse to detachedNodes
+    if (ownerA.spouse) {
+      if (!confirm(`Osoba „${ownerA.name}“ již má partnera („${ownerA.spouse.name}“). Chcete původního partnera přesunout mezi nezařazené osoby a nahradit jej osobou „${rawB.name}“?`)) {
+        return;
+      }
+      const oldSpouseA = ownerA.spouse;
+      delete ownerA.spouse;
+      if (ownerA.parentTargetId === oldSpouseA.id) {
+        ownerA.parentTargetId = ownerA.id;
+      }
+      delete oldSpouseA._isSpouseOf;
+      delete oldSpouseA._parentId;
+      SITE_DATA.familyTree.detachedNodes.push(oldSpouseA);
+    }
+
+    // Extract rawB cleanly so rawB never carries a nested .spouse or orphaned .children
+    let detachedB = null;
+    if (ownerB.spouse && rawB.id === ownerB.spouse.id) {
+      // User dragged/targeted the spouse card of couple B -> unlink just that spouse card from ownerB
+      detachedB = ownerB.spouse;
+      delete ownerB.spouse;
+      delete ownerB.parentTargetId;
+    } else {
+      // User targeted ownerB -> if ownerB had a spouse, move ownerB.spouse to detachedNodes first!
+      if (ownerB.spouse) {
+        const oldSpouseB = ownerB.spouse;
+        delete ownerB.spouse;
+        delete ownerB.parentTargetId;
+        delete oldSpouseB._isSpouseOf;
+        delete oldSpouseB._parentId;
+        SITE_DATA.familyTree.detachedNodes.push(oldSpouseB);
+      }
+      detachedB = detachCoupleNodeFromTree(ownerB.id);
+    }
+
+    if (!detachedB) return;
+
+    // If detachedB had any children, merge them into ownerA.children so they are never hidden on a spouse node
+    if (Array.isArray(detachedB.children) && detachedB.children.length > 0) {
+      if (!Array.isArray(ownerA.children)) ownerA.children = [];
+      detachedB.children.forEach(ch => {
+        if (!ownerA.children.some(existing => existing.id === ch.id)) {
+          ownerA.children.push(ch);
+        }
+      });
+      delete detachedB.children;
+    }
+
+    delete detachedB.spouse;
     delete detachedB.cmsOffsetX;
     delete detachedB.cmsOffsetY;
-    detachedB.gen = nodeA.gen;
-    nodeA.spouse = detachedB;
+    delete detachedB._parentId;
+    detachedB.gen = ownerA.gen;
+    ownerA.spouse = detachedB;
 
+    recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+    syncPersonLinksFromTree();
     markDirty(true);
     window.refreshPageView();
-    showCmsToast(`⚭ Propojeni partneři: ${nodeA.name} & ${detachedB.name}`);
+    showCmsToast(`⚭ Propojeni partneři: ${ownerA.name} & ${detachedB.name}`);
   }
 
   function createNewPersonInTree() {
@@ -2255,17 +2478,30 @@
         : [{ url: member.photo || null, caption: member.photoCaption || member.name }]
     ));
 
+    const coupleOwner = (member._isSpouseOf && window.PERSON_MAP?.has(member._isSpouseOf))
+      ? window.PERSON_MAP.get(member._isSpouseOf)
+      : member;
+
     // Build list of possible parents so user can also change parent via dropdown OR flowchart drag
     const allPotentialParents = [];
     window.PERSON_MAP?.forEach((p) => {
-      if (p.id !== member.id && !p._isSpouseOf && !isDescendantOf(member, p.id)) {
+      if (
+        p.id !== coupleOwner.id &&
+        p.id !== coupleOwner.spouse?.id &&
+        !p._isSpouseOf &&
+        !isDescendantOf(coupleOwner, p.id)
+      ) {
         allPotentialParents.push(p);
       }
     });
 
+    const isRootCouple = coupleOwner.id === SITE_DATA.familyTree.treeRoot?.id;
     const isCurrentRoot = member.id === SITE_DATA.familyTree.treeRoot?.id;
-    const canDeleteRoot = isCurrentRoot && Array.isArray(member.children) && member.children.length > 0;
-    const currentParentId = member._parentId || '';
+    const canDeleteRoot = isCurrentRoot && (Boolean(member.spouse) || (Array.isArray(member.children) && member.children.length > 0));
+    const linkedChildInCoupleId = (coupleOwner.spouse && coupleOwner.parentTargetId === coupleOwner.spouse.id)
+      ? coupleOwner.spouse.id
+      : coupleOwner.id;
+    const currentParentId = (member.id === linkedChildInCoupleId) ? (coupleOwner._parentId || '') : '';
 
     const modal = createCmsModal(`✏️ Upravit osobnost v rodokmenu: ${member.name}`, `
       <div class="cms-field-grid">
@@ -2295,16 +2531,19 @@
           </select>
         </div>
         <div class="cms-field">
-          <label>Nadřazený rodič (lze měnit i přetažením bodů v diagramu)</label>
+          <label>Nadřazený rodič této osoby (lze měnit i přetažením bodů)</label>
           <select id="edit-tp-parent" class="cms-select">
-            <option value="">— Nezařazeno / Kořen / Partner —</option>
-            ${allPotentialParents.map(p => `
-              <option value="${escapeAttr(p.id)}" ${p.id === currentParentId ? 'selected' : ''}>${escapeHtml(p.name)} (${p.gen}. gen.)</option>
-            `).join('')}
+            <option value="">— Bez nadřazeného rodiče —</option>
+            ${allPotentialParents.map(p => {
+              const coupleLabel = p.spouse ? `${p.name} & ${p.spouse.name}` : p.name;
+              return `
+                <option value="${escapeAttr(p.id)}" ${p.id === currentParentId ? 'selected' : ''}>${escapeHtml(coupleLabel)} (${p.gen}. gen.)</option>
+              `;
+            }).join('')}
           </select>
-          ${isCurrentRoot ? `
+          ${isRootCouple ? `
             <button type="button" class="cms-btn cms-btn-outline" id="add-parent-above-root-btn" style="color:#1f2421; border-color:#9e7b42; margin-top:0.4rem; align-self:flex-start;">
-              ↑ Přidat nového rodiče nad tuto osobu
+              ↑ Přidat nového rodiče přímo nad „${escapeHtml(member.name)}“
             </button>
           ` : ''}
         </div>
@@ -2338,25 +2577,54 @@
 
     modal.querySelector('#add-parent-above-root-btn')?.addEventListener('click', () => {
       modal.remove();
-      createParentAboveRoot();
+      createParentAboveRoot(member.id);
     });
 
     modal.querySelector('#delete-tp-btn')?.addEventListener('click', () => {
       if (isCurrentRoot) {
         if (!canDeleteRoot) return;
-        const nextRoot = member.children[0];
-        if (!confirm(`Opravdu chcete odstranit kořenovou osobu „${member.name}“? Novým kořenem stromu se stane „${nextRoot.name}“.`)) return;
-        if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
-        if (member.spouse) SITE_DATA.familyTree.detachedNodes.push(member.spouse);
-        member.children.slice(1).forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
-        SITE_DATA.familyTree.treeRoot = nextRoot;
+        if (member.spouse) {
+          if (!confirm(`Opravdu chcete odstranit osobu „${member.name}“? Na jejím místě v rodokmenu zůstane partner „${member.spouse.name}“.`)) return;
+          const survivingSpouse = member.spouse;
+          delete survivingSpouse._isSpouseOf;
+          delete survivingSpouse._parentId;
+          survivingSpouse.children = member.children || [];
+          SITE_DATA.familyTree.treeRoot = survivingSpouse;
+        } else {
+          const nextRoot = member.children[0];
+          if (!confirm(`Opravdu chcete odstranit kořenovou osobu „${member.name}“? Novým kořenem stromu se stane „${nextRoot.name}“.`)) return;
+          if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
+          member.children.slice(1).forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+          SITE_DATA.familyTree.treeRoot = nextRoot;
+        }
         recalculateGenerations(SITE_DATA.familyTree.treeRoot, 1);
+      } else if (member._isSpouseOf) {
+        if (!confirm(`Opravdu chcete trvale odstranit osobu „${member.name}“ z rodokmenu?`)) return;
+        detachSinglePersonFromTree(member.id);
       } else {
         if (!confirm(`Opravdu chcete trvale odstranit osobu „${member.name}“ z rodokmenu?`)) return;
-        const removed = detachPersonFromTree(member.id);
-        if (removed && Array.isArray(removed.children) && removed.children.length > 0) {
-          if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
-          removed.children.forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+        if (member.spouse && coupleOwner._parentId) {
+          // Replace member in parent's children with member.spouse so the spouse and children stay in the tree!
+          const parentNode = window.PERSON_MAP?.get(coupleOwner._parentId);
+          const survivingSpouse = member.spouse;
+          delete survivingSpouse._isSpouseOf;
+          survivingSpouse.children = member.children || [];
+          if (parentNode && Array.isArray(parentNode.children)) {
+            const idx = parentNode.children.findIndex(c => c.id === member.id);
+            if (idx !== -1) parentNode.children.splice(idx, 1, survivingSpouse);
+          }
+        } else {
+          const removed = detachCoupleNodeFromTree(member.id);
+          if (removed) {
+            if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) SITE_DATA.familyTree.detachedNodes = [];
+            if (removed.spouse) {
+              delete removed.spouse._isSpouseOf;
+              SITE_DATA.familyTree.detachedNodes.push(removed.spouse);
+            }
+            if (Array.isArray(removed.children) && removed.children.length > 0) {
+              removed.children.forEach(ch => SITE_DATA.familyTree.detachedNodes.push(ch));
+            }
+          }
         }
       }
       syncPersonLinksFromTree();
@@ -2394,11 +2662,16 @@
 
   function syncPersonLinksFromTree() {
     if (!SITE_DATA.familyTree?.treeRoot) return;
+    if (typeof window.sanitizeTreeStructure === 'function') {
+      window.sanitizeTreeStructure();
+    }
     if (!Array.isArray(SITE_DATA.personLinks)) SITE_DATA.personLinks = [];
     const existingById = new Map(SITE_DATA.personLinks.map(p => [p.id, p]));
+    const activeIds = new Set();
 
     const ensureEntry = (node) => {
       if (!node || !node.id || !node.name) return;
+      activeIds.add(node.id);
       const cleanName = node.name.trim();
       if (existingById.has(node.id)) {
         const entry = existingById.get(node.id);
@@ -2415,6 +2688,9 @@
       if (Array.isArray(node.children)) node.children.forEach(ensureEntry);
     };
     ensureEntry(SITE_DATA.familyTree.treeRoot);
+
+    // Filter out any personLinks belonging to deleted or unconnected (detached) nodes
+    SITE_DATA.personLinks = SITE_DATA.personLinks.filter(p => activeIds.has(p.id));
   }
 
   // ==========================================================================

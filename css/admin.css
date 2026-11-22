@@ -497,7 +497,8 @@ body.cms-visual-active .tree-couple-ring:hover {
   border-color: #9b2226;
 }
 
-.cms-flowchart-svg {
+body.cms-visual-active .cms-flowchart-svg {
+  display: block;
   position: absolute;
   inset: 0;
   width: 100%;
@@ -507,7 +508,8 @@ body.cms-visual-active .tree-couple-ring:hover {
   overflow: visible;
 }
 
-.tree-detached-tray {
+body.cms-visual-active .tree-detached-tray {
+  display: block;
   margin-top: 2.5rem;
   padding: 1.25rem 1.75rem;
   background: rgba(242, 236, 225, 0.92);

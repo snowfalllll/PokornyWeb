@@ -162,12 +162,81 @@ function linkifyTreeText(text, currentPersonId = null) {
 }
 window.linkifyTreeText = linkifyTreeText;
 
+function sanitizeTreeStructure() {
+  if (!SITE_DATA.familyTree || !SITE_DATA.familyTree.treeRoot) return;
+  if (!Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+    SITE_DATA.familyTree.detachedNodes = [];
+  }
+
+  const rescuedNodes = [];
+  const mainTreeIds = new Set();
+
+  function cleanNode(node, isMainTree) {
+    if (!node || typeof node !== 'object') return;
+    delete node._parentId;
+    delete node._isSpouseOf;
+    if (isMainTree && node.id) mainTreeIds.add(node.id);
+
+    if (node.spouse && typeof node.spouse === 'object') {
+      delete node.spouse._parentId;
+      delete node.spouse._isSpouseOf;
+      if (isMainTree && node.spouse.id) mainTreeIds.add(node.spouse.id);
+
+      // Rescue any accidentally nested spouse.spouse from earlier linking bugs
+      if (node.spouse.spouse) {
+        const nestedSpouse = node.spouse.spouse;
+        delete node.spouse.spouse;
+        rescuedNodes.push(nestedSpouse);
+      }
+
+      // Rescue any children accidentally placed on node.spouse instead of node
+      if (Array.isArray(node.spouse.children) && node.spouse.children.length > 0) {
+        if (!Array.isArray(node.children)) node.children = [];
+        node.spouse.children.forEach(ch => {
+          if (!node.children.some(existing => existing.id === ch.id)) {
+            node.children.push(ch);
+          }
+        });
+        delete node.spouse.children;
+      }
+
+      if (node.parentTargetId && node.parentTargetId !== node.id && node.parentTargetId !== node.spouse.id) {
+        node.parentTargetId = node.id;
+      }
+    } else {
+      delete node.parentTargetId;
+    }
+
+    if (Array.isArray(node.children)) {
+      node.children.forEach(ch => cleanNode(ch, isMainTree));
+    }
+  }
+
+  cleanNode(SITE_DATA.familyTree.treeRoot, true);
+  rescuedNodes.forEach(rn => {
+    cleanNode(rn, false);
+    SITE_DATA.familyTree.detachedNodes.push(rn);
+  });
+
+  // Remove any detached node that is already in the main tree or duplicated
+  const seenDetached = new Set();
+  SITE_DATA.familyTree.detachedNodes = SITE_DATA.familyTree.detachedNodes.filter(d => {
+    if (!d || !d.id || mainTreeIds.has(d.id) || seenDetached.has(d.id)) return false;
+    seenDetached.add(d.id);
+    cleanNode(d, false);
+    return true;
+  });
+}
+window.sanitizeTreeStructure = sanitizeTreeStructure;
+
 function indexFamilyTree(node, parentId = null) {
   if (!node) return;
+  delete node._isSpouseOf;
   node._parentId = parentId;
   PERSON_MAP.set(node.id, node);
   if (node.spouse) {
     node.spouse._isSpouseOf = node.id;
+    node.spouse._parentId = null;
     PERSON_MAP.set(node.spouse.id, node.spouse);
   }
   if (Array.isArray(node.children)) {
@@ -179,14 +248,20 @@ function renderGenealogyTreeDom() {
   const rootEl = document.getElementById('genealogy-root');
   if (!rootEl || !SITE_DATA.familyTree || !SITE_DATA.familyTree.treeRoot) return;
 
+  sanitizeTreeStructure();
+
+  const isCmsMode = document.body.classList.contains('cms-visual-active');
+
   PERSON_MAP.clear();
   indexFamilyTree(SITE_DATA.familyTree.treeRoot, null);
 
-  // Also render any detached/unconnected nodes in SITE_DATA.familyTree.detachedNodes if created in CMS flowchart mode
-  const detached = Array.isArray(SITE_DATA.familyTree.detachedNodes) ? SITE_DATA.familyTree.detachedNodes : [];
+  // Only index and render detached/unconnected nodes when in authenticated CMS mode
+  const detached = isCmsMode && Array.isArray(SITE_DATA.familyTree.detachedNodes)
+    ? SITE_DATA.familyTree.detachedNodes
+    : [];
   detached.forEach(d => indexFamilyTree(d, null));
 
-  const detachedHtml = detached.length > 0
+  const detachedHtml = (isCmsMode && detached.length > 0)
     ? `
       <div class="tree-detached-tray" id="tree-detached-tray">
         <div class="tree-detached-title">Nezařazené osobnosti (přetáhněte bod nahoře pod rodiče nebo k partnerovi):</div>
@@ -198,10 +273,15 @@ function renderGenealogyTreeDom() {
     : '';
 
   rootEl.innerHTML = `
+    <svg id="tree-connectors-svg" class="tree-connectors-svg" aria-hidden="true"></svg>
     <svg id="cms-flowchart-svg" class="cms-flowchart-svg" aria-hidden="true"></svg>
     <ul class="org-ul root-ul">${renderTreeNode(SITE_DATA.familyTree.treeRoot, false)}</ul>
     ${detachedHtml}
   `;
+
+  requestAnimationFrame(() => {
+    updateTreeConnectorsSvg();
+  });
 
   rootEl.querySelectorAll('.tree-person-card').forEach(card => {
     const trigger = card.querySelector('.tree-person-trigger');
@@ -230,6 +310,92 @@ function renderGenealogyTreeDom() {
     }, 180);
   }
 }
+
+function updateTreeConnectorsSvg() {
+  const rootEl = document.getElementById('genealogy-root');
+  const svgEl = document.getElementById('tree-connectors-svg');
+  if (!rootEl || !svgEl || !SITE_DATA.familyTree?.treeRoot) return;
+
+  const rootRect = rootEl.getBoundingClientRect();
+  const scale = (rootEl.offsetWidth > 0 && rootRect.width > 0)
+    ? (rootRect.width / rootEl.offsetWidth)
+    : (window.treePanZoomApi ? window.treePanZoomApi.getScale() : 1);
+
+  const paths = [];
+
+  function getLocalBox(el) {
+    const r = el.getBoundingClientRect();
+    return {
+      left: (r.left - rootRect.left) / scale,
+      right: (r.right - rootRect.left) / scale,
+      top: (r.top - rootRect.top) / scale,
+      bottom: (r.bottom - rootRect.top) / scale,
+      cx: (r.left + r.width / 2 - rootRect.left) / scale,
+      cy: (r.top + r.height / 2 - rootRect.top) / scale
+    };
+  }
+
+  function walkConnectors(parentNode) {
+    if (!parentNode || !Array.isArray(parentNode.children) || parentNode.children.length === 0) return;
+
+    const pCard = document.getElementById(`person-${parentNode.id}`);
+    if (!pCard) return;
+    const pBox = getLocalBox(pCard);
+
+    let startX = pBox.cx;
+    let startY = pBox.bottom;
+    let parentRowBottom = pBox.bottom;
+
+    if (parentNode.spouse) {
+      const sCard = document.getElementById(`person-${parentNode.spouse.id}`);
+      const ringEl = rootEl.querySelector(`.tree-couple-ring[data-spouse-ring="${parentNode.id}"]`);
+      if (ringEl && sCard) {
+        const ringBox = getLocalBox(ringEl);
+        const sBox = getLocalBox(sCard);
+        startX = ringBox.cx;
+        startY = ringBox.bottom;
+        parentRowBottom = Math.max(pBox.bottom, sBox.bottom);
+      }
+    }
+
+    const childTargets = [];
+    parentNode.children.forEach(child => {
+      // Connect directly to the specific child in a married couple (defaulting to child.id, or child.spouse.id if parentTargetId points to spouse)
+      const targetId = (child.spouse && child.parentTargetId === child.spouse.id)
+        ? child.spouse.id
+        : child.id;
+      const cCard = document.getElementById(`person-${targetId}`);
+      if (cCard) {
+        const cBox = getLocalBox(cCard);
+        childTargets.push({ endX: cBox.cx, endY: cBox.top });
+      }
+    });
+
+    if (childTargets.length > 0) {
+      const minChildTop = Math.min(...childTargets.map(t => t.endY));
+      const midY = parentRowBottom + Math.max(12, (minChildTop - parentRowBottom) / 2);
+
+      childTargets.forEach(({ endX, endY }) => {
+        paths.push(
+          `<path d="M ${startX.toFixed(1)} ${startY.toFixed(1)} L ${startX.toFixed(1)} ${midY.toFixed(1)} L ${endX.toFixed(1)} ${midY.toFixed(1)} L ${endX.toFixed(1)} ${endY.toFixed(1)}" fill="none" stroke="var(--accent-gold, #9e7b42)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`
+        );
+      });
+    }
+
+    parentNode.children.forEach(walkConnectors);
+  }
+
+  walkConnectors(SITE_DATA.familyTree.treeRoot);
+  if (document.body.classList.contains('cms-visual-active') && Array.isArray(SITE_DATA.familyTree.detachedNodes)) {
+    SITE_DATA.familyTree.detachedNodes.forEach(walkConnectors);
+  }
+
+  svgEl.innerHTML = paths.join('');
+}
+window.updateTreeConnectorsSvg = updateTreeConnectorsSvg;
+window.addEventListener('resize', () => {
+  requestAnimationFrame(updateTreeConnectorsSvg);
+});
 
 function renderPersonCard(member, isDetached = false) {
   const quickDates = member.deathDate && member.deathDate !== '—'
@@ -368,9 +534,20 @@ window.PERSON_MAP = PERSON_MAP;
 
 function buildPersonRelationsHtml(member) {
   const pills = [];
-  if (member._parentId && PERSON_MAP.has(member._parentId)) {
-    const p = PERSON_MAP.get(member._parentId);
+  const coupleOwner = (member._isSpouseOf && PERSON_MAP.has(member._isSpouseOf))
+    ? PERSON_MAP.get(member._isSpouseOf)
+    : member;
+  const linkedChildId = (coupleOwner.spouse && coupleOwner.parentTargetId === coupleOwner.spouse.id)
+    ? coupleOwner.spouse.id
+    : coupleOwner.id;
+
+  // Show parent(s) only on the partner in the couple who is actually their child
+  if (member.id === linkedChildId && coupleOwner._parentId && PERSON_MAP.has(coupleOwner._parentId)) {
+    const p = PERSON_MAP.get(coupleOwner._parentId);
     pills.push(`<button type="button" class="relation-pill" data-jump-person="${p.id}">↑ Rodič: ${p.name}</button>`);
+    if (p.spouse) {
+      pills.push(`<button type="button" class="relation-pill" data-jump-person="${p.spouse.id}">↑ Rodič: ${p.spouse.name}</button>`);
+    }
   }
   if (member._isSpouseOf && PERSON_MAP.has(member._isSpouseOf)) {
     const sp = PERSON_MAP.get(member._isSpouseOf);
@@ -379,8 +556,8 @@ function buildPersonRelationsHtml(member) {
   if (member.spouse) {
     pills.push(`<button type="button" class="relation-pill" data-jump-person="${member.spouse.id}">⚭ ${member.spouse.name}</button>`);
   }
-  if (Array.isArray(member.children) && member.children.length > 0) {
-    member.children.forEach(ch => {
+  if (Array.isArray(coupleOwner.children) && coupleOwner.children.length > 0) {
+    coupleOwner.children.forEach(ch => {
       pills.push(`<button type="button" class="relation-pill" data-jump-person="${ch.id}">↳ ${ch.name}</button>`);
     });
   }
