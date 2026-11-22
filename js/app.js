@@ -172,19 +172,31 @@ function normalizeHref(rawUrl) {
   return s;
 }
 
+function escapeLinkAttr(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function linkifyFamilyNames(text) {
   if (!text) return '';
   let processed = String(text);
 
   // If the string already contains generated person-inline-link tags, strip them back to plain text first so we never double-link!
   if (processed.includes('person-inline-link')) {
-    processed = processed.replace(/<a\b[^>]*class="[^"]*person-inline-link[^"]*"[^>]*>(.*?)<\/a>/gi, '$1');
+    processed = processed.replace(/<(?:a|span)\b[^>]*class="[^"]*person-inline-link[^"]*"[^>]*>(.*?)<\/(?:a|span)>/gi, '$1');
   }
 
   const placeholders = [];
-  const cmsSuffix = (sessionStorage.getItem('pokorny_cms_mode') === '1' || new URLSearchParams(window.location.search).get('cms') === '1')
-    ? '&cms=1'
-    : '';
+  const placeholderPlainTexts = [];
+  const isCmsActive = sessionStorage.getItem('pokorny_cms_mode') === '1' || new URLSearchParams(window.location.search).get('cms') === '1';
+  const cmsSuffix = isCmsActive ? '&cms=1' : '';
+
+  function restorePlainTokens(str) {
+    return str.replace(/__LINK_TOKEN_(\d+)__/g, (_, idx) => placeholderPlainTexts[Number(idx)] ?? '');
+  }
 
   // 1. Parse Markdown-style links: supports both [www.e.com](E site) AND [E site](https://www.e.com)
   processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, partA, partB) => {
@@ -198,31 +210,60 @@ function linkifyFamilyNames(text) {
     const isExternal = /^https?:\/\//i.test(href);
     const targetAttr = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
     const token = `__LINK_TOKEN_${placeholders.length}__`;
+    placeholderPlainTexts.push(labelPart);
     placeholders.push(`<a href="${href}" class="person-inline-link markdown-inline-link"${targetAttr}>${labelPart}</a>`);
     return token;
   });
 
-  // 2. Parse Family Member links from SITE_DATA.personLinks
+  // 2. Parse Family Member links from SITE_DATA.personLinks (with per-occurrence override support via SITE_DATA.personLinkOverrides)
   if (Array.isArray(SITE_DATA.personLinks)) {
+    const seenPatterns = new Set();
     const allMatchers = [];
     SITE_DATA.personLinks.forEach(entry => {
       if (Array.isArray(entry.patterns)) {
         entry.patterns.forEach(pattern => {
-          if (pattern && pattern.trim()) {
-            allMatchers.push({ pattern: pattern.trim(), id: entry.id });
+          const cleanPat = pattern ? pattern.trim() : '';
+          if (cleanPat && !seenPatterns.has(cleanPat)) {
+            seenPatterns.add(cleanPat);
+            allMatchers.push({ pattern: cleanPat, id: entry.id });
           }
         });
       }
     });
     allMatchers.sort((a, b) => b.pattern.length - a.pattern.length);
 
+    const overrides = (SITE_DATA.personLinkOverrides && typeof SITE_DATA.personLinkOverrides === 'object')
+      ? SITE_DATA.personLinkOverrides
+      : {};
+
     allMatchers.forEach(({ pattern, id }) => {
       const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(escaped, 'g');
-      processed = processed.replace(regex, (match) => {
+      processed = processed.replace(regex, (match, offset) => {
+        const rawBefore = restorePlainTokens(processed.slice(0, offset));
+        const rawAfter = restorePlainTokens(processed.slice(offset + match.length));
+        const beforeSnippet = rawBefore.slice(-24).replace(/\s+/g, ' ').trim();
+        const afterSnippet = rawAfter.slice(0, 24).replace(/\s+/g, ' ').trim();
+        const contextKey = `${beforeSnippet}|${match}|${afterSnippet}`;
+
+        const overrideId = overrides[contextKey];
+        const targetId = overrideId || id;
         const token = `__LINK_TOKEN_${placeholders.length}__`;
+        placeholderPlainTexts.push(match);
+
+        if (targetId === '__NONE__') {
+          if (isCmsActive) {
+            placeholders.push(
+              `<span class="person-inline-link person-inline-unlinked" data-person-id="__NONE__" data-default-person-id="${escapeLinkAttr(id)}" data-match-text="${escapeLinkAttr(match)}" data-context-key="${escapeLinkAttr(contextKey)}" title="Odkaz vypnut (kliknutím v CMS můžete odkaz znovu zapnout)">${match}</span>`
+            );
+          } else {
+            placeholders.push(match);
+          }
+          return token;
+        }
+
         placeholders.push(
-          `<a href="rodokmen.html?person=${id}${cmsSuffix}" class="person-inline-link" title="Zobrazit v rodokmenu: ${match}">${match}</a>`
+          `<a href="rodokmen.html?person=${encodeURIComponent(targetId)}${cmsSuffix}" class="person-inline-link" data-person-id="${escapeLinkAttr(targetId)}" data-default-person-id="${escapeLinkAttr(id)}" data-match-text="${escapeLinkAttr(match)}" data-context-key="${escapeLinkAttr(contextKey)}" title="Zobrazit v rodokmenu: ${escapeLinkAttr(match)}">${match}</a>`
         );
         return token;
       });

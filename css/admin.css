@@ -226,6 +226,92 @@ body.cms-visual-active .site-header .nav-links a.cms-interactable-target:hover {
   border-radius: 4px;
 }
 
+body.cms-visual-active .person-inline-link:not(.markdown-inline-link):hover {
+  outline: 2px solid #9e7b42 !important;
+  outline-offset: 2px;
+  background-color: rgba(158, 123, 66, 0.16);
+  border-radius: 3px;
+}
+
+body.cms-visual-active .person-inline-unlinked {
+  border-bottom: 1.5px dotted rgba(158, 123, 66, 0.55);
+  cursor: pointer;
+}
+
+.cms-person-target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 310px;
+  overflow-y: auto;
+  border: 1px solid #d5c7b0;
+  border-radius: 6px;
+  padding: 0.55rem;
+  background: #ffffff;
+}
+
+.cms-person-target-group-title {
+  font-size: 0.73rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9e7b42;
+  padding: 0.35rem 0.25rem 0.15rem;
+}
+
+.cms-person-target-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e5dec9;
+  border-radius: 5px;
+  cursor: pointer;
+  background: #faf7f2;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.cms-person-target-row:hover {
+  border-color: #9e7b42;
+  background: #fcf6ea;
+}
+
+.cms-person-target-row.selected {
+  border-color: #2c4c3e;
+  background: rgba(44, 76, 62, 0.08);
+  box-shadow: 0 0 0 1px #2c4c3e;
+}
+
+.cms-person-target-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.cms-person-target-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  color: #1f2421;
+}
+
+.cms-person-target-role {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #2c4c3e;
+  background: rgba(44, 76, 62, 0.12);
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+}
+
+.cms-person-target-dates {
+  font-size: 0.77rem;
+  color: #5a605d;
+}
+
 /* Floating "Kliknout | Upravit" Mini-Menu Popover */
 .cms-action-popover {
   position: fixed;

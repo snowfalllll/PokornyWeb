@@ -543,6 +543,7 @@
     const selectors = [
       '.site-header .brand',
       '.site-header .nav-links a',
+      '.person-inline-link:not(.markdown-inline-link)',
       '.hero-img-btn',
       '#btn-pribor-more',
       '#vaclav-home-portrait',
@@ -573,12 +574,12 @@
     document.addEventListener('click', (e) => {
       if (!document.body.classList.contains('cms-visual-active')) return;
 
-      // Ignore clicks inside CMS UI panels, modals, popovers, or inline text toolbars
-      if (e.target.closest('.cms-top-bar, .cms-modal-backdrop, .cms-action-popover, .cms-inline-text-toolbar, .cms-timeline-dnd-bar, .cms-add-item-btn, .cms-tree-port, .tree-couple-ring')) {
+      // Ignore clicks inside CMS UI panels, modals, popovers, inline text toolbars, or active inline text editing
+      if (e.target.closest('.cms-top-bar, .cms-modal-backdrop, .cms-action-popover, .cms-inline-text-toolbar, .cms-timeline-dnd-bar, .cms-add-item-btn, .cms-tree-port, .tree-couple-ring, [data-cms-editing="true"]')) {
         return;
       }
-      // Also ignore clicks inside the universal preview modal when opened via "Kliknout"
-      if (e.target.closest('#universal-modal')) {
+      // Inside #universal-modal, only intercept clicks on auto-created person links (.person-inline-link)
+      if (e.target.closest('#universal-modal') && !e.target.closest('.person-inline-link:not(.markdown-inline-link)')) {
         return;
       }
 
@@ -613,6 +614,10 @@
   }
 
   function findInteractableElement(target) {
+    // Check inline person link first so clicking a linked name inside a paragraph or timeline card targets the name link itself
+    const personLink = target.closest('.person-inline-link:not(.markdown-inline-link)');
+    if (personLink) return personLink;
+
     return target.closest(
       '.site-header .brand, .site-header .nav-links a, .hero-img-btn, #btn-pribor-more, #vaclav-home-portrait, .vaclav-cta-wrap a, .track-item, .timeline-item-compact, .timeline-item-interactive, .lineage-node-link, #brozik-box, .vaclav-framed-photo, .collage-tile, .tree-person-card'
     );
@@ -752,6 +757,47 @@
         label: `Horní lišta: ${linkLabel}`,
         onClickAction: () => navigateInCmsMode(el.getAttribute('href')),
         onEditAction: () => openTopBarEditor(cmsKey)
+      };
+    }
+
+    // 0C. Auto-created Inline Family Member Link (.person-inline-link)
+    if (el.classList.contains('person-inline-link') && !el.classList.contains('markdown-inline-link')) {
+      const personId = el.getAttribute('data-person-id') || '';
+      const defaultPersonId = el.getAttribute('data-default-person-id') || personId;
+      const matchText = el.getAttribute('data-match-text') || el.textContent.trim();
+      const contextKey = el.getAttribute('data-context-key') || '';
+      const allPeople = getAllFamilyMembersList();
+      const targetPerson = allPeople.find(p => p.id === personId);
+
+      let label = `🔗 Odkaz: ${matchText}`;
+      if (personId === '__NONE__') {
+        label = `🚫 Odkaz vypnut: „${matchText}“`;
+      } else if (targetPerson) {
+        const sub = targetPerson.role || targetPerson.birthDate || '';
+        label = `🔗 ${targetPerson.name}${sub ? ' (' + sub + ')' : ''}`;
+      }
+
+      return {
+        label,
+        onClickAction: () => {
+          if (personId === '__NONE__') {
+            showCmsToast('Tento výskyt má vypnutý odkaz. Klikněte na „✏️ Upravit“ pro výběr osobnosti.');
+            return;
+          }
+          if (document.body.getAttribute('data-page') === 'rodokmen' || el.hasAttribute('data-jump-person')) {
+            const nextPerson = window.PERSON_MAP?.get(personId) || targetPerson;
+            if (nextPerson && typeof window.openPersonOverlayModal === 'function') {
+              window.openPersonOverlayModal(nextPerson);
+              const cardEl = document.getElementById(`person-${personId}`);
+              if (cardEl && window.treePanZoomApi) {
+                window.treePanZoomApi.focusOnElement(cardEl);
+              }
+            }
+          } else {
+            navigateInCmsMode(`rodokmen.html?person=${encodeURIComponent(personId)}`);
+          }
+        },
+        onEditAction: () => openPersonLinkTargetEditor(el, { personId, defaultPersonId, matchText, contextKey })
       };
     }
 
@@ -898,6 +944,136 @@
   // ==========================================================================
   // 6. Fullscreen / Overlay Editors for Each Interactive Component
   // ==========================================================================
+  function getAllFamilyMembersList() {
+    if (typeof window.ensureFamilyGraphModel === 'function') {
+      window.ensureFamilyGraphModel();
+    }
+    if (Array.isArray(SITE_DATA.familyTree?.nodes) && SITE_DATA.familyTree.nodes.length > 0) {
+      return SITE_DATA.familyTree.nodes;
+    }
+    const list = [];
+    const seen = new Set();
+    const walk = (node) => {
+      if (!node || !node.id || seen.has(node.id)) return;
+      seen.add(node.id);
+      list.push(node);
+      if (node.spouse && node.spouse.id && !seen.has(node.spouse.id)) {
+        seen.add(node.spouse.id);
+        list.push(node.spouse);
+      }
+      if (Array.isArray(node.children)) node.children.forEach(walk);
+    };
+    if (SITE_DATA.familyTree?.treeRoot) walk(SITE_DATA.familyTree.treeRoot);
+    if (Array.isArray(SITE_DATA.familyTree?.detachedNodes)) SITE_DATA.familyTree.detachedNodes.forEach(walk);
+    return list;
+  }
+
+  function normalizeForSearch(str) {
+    return String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  function openPersonLinkTargetEditor(linkEl, { personId, defaultPersonId, matchText, contextKey }) {
+    const allPeople = getAllFamilyMembersList();
+    const currentSelectedId = personId || defaultPersonId || '';
+
+    function renderPersonOptionCard(p) {
+      const isChecked = p.id === currentSelectedId;
+      const dates = p.deathDate && p.deathDate !== '—'
+        ? `${p.birthDate || ''} • ${p.deathDate}`
+        : (p.birthDate || '');
+      return `
+        <label class="cms-person-target-row ${isChecked ? 'selected' : ''}" data-filter-text="${escapeAttr(normalizeForSearch(p.name + ' ' + (p.role || '') + ' ' + dates))}">
+          <input type="radio" name="cms-person-link-target" value="${escapeAttr(p.id)}" ${isChecked ? 'checked' : ''} />
+          <div class="cms-person-target-info">
+            <div class="cms-person-target-name">
+              <strong>${escapeHtml(p.name)}</strong>
+              ${p.role ? `<span class="cms-person-target-role">${escapeHtml(p.role)}</span>` : ''}
+            </div>
+            ${dates ? `<div class="cms-person-target-dates">${escapeHtml(dates)}</div>` : ''}
+          </div>
+        </label>
+      `;
+    }
+
+    const modal = createCmsModal(`🔗 Upravit cíl odkazu: „${matchText}“`, `
+      <div class="cms-field">
+        <input type="text" id="cms-person-target-search" class="cms-input" placeholder="🔍 Hledat osobnost v rodokmenu..." />
+      </div>
+
+      <div class="cms-person-target-list" id="cms-person-target-list">
+        ${allPeople.map(renderPersonOptionCard).join('')}
+        <label class="cms-person-target-row ${currentSelectedId === '__NONE__' ? 'selected' : ''}" data-filter-text="neodkazovat vypnout bezny text">
+          <input type="radio" name="cms-person-link-target" value="__NONE__" ${currentSelectedId === '__NONE__' ? 'checked' : ''} />
+          <div class="cms-person-target-info">
+            <div class="cms-person-target-name"><strong>🚫 Neodkazovat (pouze běžný text)</strong></div>
+          </div>
+        </label>
+      </div>
+    `, `
+      <button type="button" class="cms-btn cms-btn-outline" style="color:#1f2421; border-color:#cbbba0;" data-close-modal>Zrušit</button>
+      <button type="button" class="cms-btn cms-btn-primary" id="save-person-link-target-btn">✓ Uložit</button>
+    `, 'cms-modal-sm');
+
+    const listEl = modal.querySelector('#cms-person-target-list');
+    listEl?.querySelectorAll('input[name="cms-person-link-target"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        listEl.querySelectorAll('.cms-person-target-row').forEach(r => r.classList.remove('selected'));
+        radio.closest('.cms-person-target-row')?.classList.add('selected');
+      });
+    });
+
+    const searchInput = modal.querySelector('#cms-person-target-search');
+    searchInput?.addEventListener('input', () => {
+      const q = normalizeForSearch(searchInput.value.trim());
+      listEl.querySelectorAll('.cms-person-target-row').forEach(row => {
+        const hay = row.getAttribute('data-filter-text') || '';
+        row.style.display = (!q || hay.includes(q)) ? '' : 'none';
+      });
+    });
+
+    modal.querySelector('#save-person-link-target-btn')?.addEventListener('click', () => {
+      const chosenId = modal.querySelector('input[name="cms-person-link-target"]:checked')?.value;
+      if (!chosenId) return;
+
+      if (!SITE_DATA.personLinkOverrides || typeof SITE_DATA.personLinkOverrides !== 'object') {
+        SITE_DATA.personLinkOverrides = {};
+      }
+      if (contextKey) {
+        SITE_DATA.personLinkOverrides[contextKey] = chosenId;
+      }
+
+      if (linkEl && linkEl.closest('#universal-modal')) {
+        linkEl.setAttribute('data-person-id', chosenId);
+        if (chosenId === '__NONE__') {
+          linkEl.classList.add('person-inline-unlinked');
+          linkEl.removeAttribute('href');
+          linkEl.removeAttribute('data-jump-person');
+        } else {
+          linkEl.classList.remove('person-inline-unlinked');
+          if (document.body.getAttribute('data-page') === 'rodokmen') {
+            linkEl.setAttribute('href', `#person-${chosenId}`);
+            linkEl.setAttribute('data-jump-person', chosenId);
+          } else {
+            linkEl.setAttribute('href', `rodokmen.html?person=${encodeURIComponent(chosenId)}&cms=1`);
+          }
+        }
+      }
+
+      markDirty(true);
+      if (typeof window.refreshPageView === 'function') {
+        window.refreshPageView();
+      }
+      modal.remove();
+      const targetName = chosenId === '__NONE__'
+        ? 'Bez odkazu'
+        : (allPeople.find(p => p.id === chosenId)?.name || chosenId);
+      showCmsToast(`🔗 Odkaz „${matchText}“ nastaven na: ${targetName}`);
+    });
+  }
+
   function openTopBarEditor(focusFieldKey = null) {
     const g = SITE_DATA.pageText?.global || {};
     const modal = createCmsModal('✏️ Upravit horní lištu webu (značku a menu)', `

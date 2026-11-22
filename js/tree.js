@@ -100,15 +100,31 @@ function normalizeHrefTree(rawUrl) {
   return s;
 }
 
+function escapeTreeLinkAttr(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function linkifyTreeText(text, currentPersonId = null) {
   if (!text) return '';
   let processed = String(text);
 
   if (processed.includes('person-inline-link')) {
-    processed = processed.replace(/<a\b[^>]*class="[^"]*person-inline-link[^"]*"[^>]*>(.*?)<\/a>/gi, '$1');
+    processed = processed.replace(/<(?:a|span)\b[^>]*class="[^"]*person-inline-link[^"]*"[^>]*>(.*?)<\/(?:a|span)>/gi, '$1');
   }
 
   const placeholders = [];
+  const placeholderPlainTexts = [];
+  const isCmsActive = document.body.classList.contains('cms-visual-active') ||
+    sessionStorage.getItem('pokorny_cms_mode') === '1' ||
+    new URLSearchParams(window.location.search).get('cms') === '1';
+
+  function restorePlainTokens(str) {
+    return str.replace(/__TREE_LINK_(\d+)__/g, (_, idx) => placeholderPlainTexts[Number(idx)] ?? '');
+  }
 
   // 1. Markdown links: both [www.e.com](E site) and [E site](https://www.e.com)
   processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, partA, partB) => {
@@ -122,32 +138,60 @@ function linkifyTreeText(text, currentPersonId = null) {
     const isExternal = /^https?:\/\//i.test(href);
     const targetAttr = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
     const token = `__TREE_LINK_${placeholders.length}__`;
+    placeholderPlainTexts.push(labelPart);
     placeholders.push(`<a href="${href}" class="person-inline-link markdown-inline-link"${targetAttr}>${labelPart}</a>`);
     return token;
   });
 
-  // 2. Family member links (jump directly inside the tree modal)
+  // 2. Family member links (jump directly inside the tree modal, with per-occurrence override support)
   if (Array.isArray(SITE_DATA.personLinks)) {
+    const seenPatterns = new Set();
     const allMatchers = [];
     SITE_DATA.personLinks.forEach(entry => {
-      if (entry.id === currentPersonId) return;
       if (Array.isArray(entry.patterns)) {
         entry.patterns.forEach(pattern => {
-          if (pattern && pattern.trim()) {
-            allMatchers.push({ pattern: pattern.trim(), id: entry.id });
+          const cleanPat = pattern ? pattern.trim() : '';
+          if (cleanPat && !seenPatterns.has(cleanPat)) {
+            seenPatterns.add(cleanPat);
+            allMatchers.push({ pattern: cleanPat, id: entry.id });
           }
         });
       }
     });
     allMatchers.sort((a, b) => b.pattern.length - a.pattern.length);
 
+    const overrides = (SITE_DATA.personLinkOverrides && typeof SITE_DATA.personLinkOverrides === 'object')
+      ? SITE_DATA.personLinkOverrides
+      : {};
+
     allMatchers.forEach(({ pattern, id }) => {
       const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(escaped, 'g');
-      processed = processed.replace(regex, (match) => {
+      processed = processed.replace(regex, (match, offset) => {
+        const rawBefore = restorePlainTokens(processed.slice(0, offset));
+        const rawAfter = restorePlainTokens(processed.slice(offset + match.length));
+        const beforeSnippet = rawBefore.slice(-24).replace(/\s+/g, ' ').trim();
+        const afterSnippet = rawAfter.slice(0, 24).replace(/\s+/g, ' ').trim();
+        const contextKey = `${beforeSnippet}|${match}|${afterSnippet}`;
+
+        const overrideId = overrides[contextKey];
+        const targetId = overrideId || id;
         const token = `__TREE_LINK_${placeholders.length}__`;
+        placeholderPlainTexts.push(match);
+
+        if (targetId === '__NONE__' || (!overrideId && targetId === currentPersonId)) {
+          if (isCmsActive && targetId === '__NONE__') {
+            placeholders.push(
+              `<span class="person-inline-link person-inline-unlinked" data-person-id="__NONE__" data-default-person-id="${escapeTreeLinkAttr(id)}" data-match-text="${escapeTreeLinkAttr(match)}" data-context-key="${escapeTreeLinkAttr(contextKey)}" title="Odkaz vypnut (kliknutím v CMS můžete odkaz znovu zapnout)">${match}</span>`
+            );
+          } else {
+            placeholders.push(match);
+          }
+          return token;
+        }
+
         placeholders.push(
-          `<a href="#person-${id}" data-jump-person="${id}" class="person-inline-link" title="Přejít v rodokmenu na: ${match}">${match}</a>`
+          `<a href="#person-${escapeTreeLinkAttr(targetId)}" data-jump-person="${escapeTreeLinkAttr(targetId)}" class="person-inline-link" data-person-id="${escapeTreeLinkAttr(targetId)}" data-default-person-id="${escapeTreeLinkAttr(id)}" data-match-text="${escapeTreeLinkAttr(match)}" data-context-key="${escapeTreeLinkAttr(contextKey)}" title="Přejít v rodokmenu na: ${escapeTreeLinkAttr(match)}">${match}</a>`
         );
         return token;
       });
